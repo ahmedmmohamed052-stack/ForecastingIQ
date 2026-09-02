@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>User Guide · Sales Forecasting API</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #03040a;
+      --surface: #080c18;
+      --card: #0b0f1e;
+      --border: rgba(255,255,255,0.06);
+      --accent1: #7c3aff;
+      --accent2: #06b6d4;
+      --accent3: #f0abfc;
+      --accent4: #34d399;
+      --accent5: #fb923c;
+      --text: #f1f5f9;
+      --muted: #64748b;
+      --glow1: rgba(124,58,255,0.4);
+      --glow2: rgba(6,182,212,0.3);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── BACKGROUND ── */
+    .bg-canvas { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+    .orb {
+      position: absolute; border-radius: 50%;
+      filter: blur(80px); opacity: 0.25;
+      animation: drift 16s ease-in-out infinite alternate;
+    }
+    .orb-1 { width:600px;height:600px;background:radial-gradient(circle,#7c3aff,transparent 70%);top:-20%;left:-15%;animation-delay:0s; }
+    .orb-2 { width:500px;height:500px;background:radial-gradient(circle,#06b6d4,transparent 70%);bottom:-15%;right:-10%;animation-delay:-5s; }
+    .orb-3 { width:380px;height:380px;background:radial-gradient(circle,#f0abfc,transparent 70%);top:50%;left:60%;animation-delay:-9s; }
+    @keyframes drift {
+      0%   { transform:translate(0,0) scale(1); }
+      50%  { transform:translate(30px,-25px) scale(1.06); }
+      100% { transform:translate(-15px,40px) scale(0.94); }
+    }
+
+    .scanlines {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px);
+    }
+    .grain {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat; background-size: 150px 150px;
+    }
+
+    /* ── DATA STREAM ── */
+    .data-stream {
+      position: fixed; right: 0; top: 0; bottom: 0;
+      width: 180px; z-index: 2; pointer-events: none; overflow: hidden;
+      mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+    }
+    .stream-col {
+      position: absolute; top: 0; bottom: 0;
+      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      color: var(--accent2); opacity: 0.2; white-space: nowrap;
+      animation: stream-fall linear infinite; line-height: 1.6;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    @keyframes stream-fall {
+      0%   { transform: translateY(-100%); }
+      100% { transform: translateY(100vh); }
+    }
+    .data-stream-left {
+      position: fixed; left: 0; top: 0; bottom: 0;
+      width: 140px; z-index: 2; pointer-events: none; overflow: hidden;
+      mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+    }
+    .stream-col-l {
+      position: absolute; top: 0; bottom: 0;
+      font-size: 9px; font-family: 'JetBrains Mono', monospace;
+      color: var(--accent1); opacity: 0.15; white-space: nowrap;
+      animation: stream-fall linear infinite; line-height: 1.8;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+
+    /* ── LAYOUT ── */
+    .page-wrap {
+      position: relative; z-index: 10;
+      max-width: 860px; margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    /* ── TOP HEADER ── */
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 48px;
+      animation: fadeUp 0.7s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .logo-area { display: flex; align-items: center; gap: 14px; }
+    .logo-hex {
+      width: 48px; height: 48px; position: relative;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .logo-hex svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .logo-hex-inner { position: relative; z-index: 1; font-size: 20px; }
+    .title-block { display: flex; flex-direction: column; gap: 2px; }
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 34px; letter-spacing: 2px;
+      background: linear-gradient(90deg, var(--accent1) 0%, var(--accent2) 50%, var(--accent3) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      line-height: 1;
+    }
+    .subtitle {
+      font-size: 9px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase;
+    }
+    .status-badge {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 12px;
+      background: rgba(52,211,153,0.08);
+      border: 1px solid rgba(52,211,153,0.2);
+      border-radius: 20px;
+      font-size: 9px; color: var(--accent4);
+      letter-spacing: 0.15em; text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .status-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent4);
+      animation: pulse-dot 2s ease-in-out infinite;
+      box-shadow: 0 0 6px var(--accent4);
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity:0; transform:translateY(30px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    /* ── FLOW OVERVIEW ── */
+    .flow-bar {
+      display: flex; align-items: center; gap: 0;
+      margin-bottom: 48px;
+      background: rgba(8,12,24,0.8);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px; padding: 16px 20px;
+      animation: fadeUp 0.7s cubic-bezier(0.34,1.56,0.64,1) 0.1s both;
+    }
+    .flow-step {
+      display: flex; align-items: center; gap: 10px; flex: 1;
+    }
+    .flow-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Bebas Neue', sans-serif; font-size: 14px;
+      flex-shrink: 0;
+    }
+    .flow-num.n1 { background: rgba(124,58,255,0.2); border: 1px solid rgba(124,58,255,0.5); color: var(--accent1); }
+    .flow-num.n2 { background: rgba(6,182,212,0.2);  border: 1px solid rgba(6,182,212,0.5);  color: var(--accent2); }
+    .flow-num.n3 { background: rgba(52,211,153,0.2); border: 1px solid rgba(52,211,153,0.5); color: var(--accent4); }
+    .flow-num.n4 { background: rgba(240,171,252,0.2);border: 1px solid rgba(240,171,252,0.5);color: var(--accent3); }
+    .flow-label {
+      font-size: 10px; color: var(--text); letter-spacing: 0.05em;
+    }
+    .flow-label span {
+      display: block; font-size: 8px; color: var(--muted);
+      letter-spacing: 0.1em; margin-top: 2px;
+    }
+    .flow-arrow {
+      font-size: 14px; color: rgba(124,58,255,0.4);
+      margin: 0 8px; flex-shrink: 0;
+    }
+
+    /* ── SECTION ── */
+    .section {
+      margin-bottom: 28px;
+      background: linear-gradient(160deg, rgba(11,15,30,0.97) 0%, rgba(8,12,24,0.99) 100%);
+      border: 1px solid rgba(124,58,255,0.15);
+      border-radius: 16px; overflow: hidden;
+      position: relative;
+      animation: fadeUp 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .section:nth-child(1) { animation-delay: 0.15s; }
+    .section:nth-child(2) { animation-delay: 0.22s; }
+    .section:nth-child(3) { animation-delay: 0.29s; }
+    .section:nth-child(4) { animation-delay: 0.36s; }
+    .section:nth-child(5) { animation-delay: 0.43s; }
+
+    /* Corner accents */
+    .section::before, .section::after {
+      content: ''; position: absolute; width: 20px; height: 20px; pointer-events: none;
+    }
+    .section::before { top: -1px; left: -1px; border-top: 2px solid var(--accent1); border-left: 2px solid var(--accent1); border-radius: 16px 0 0 0; }
+    .section::after  { top: -1px; right: -1px; border-top: 2px solid var(--accent2); border-right: 2px solid var(--accent2); border-radius: 0 16px 0 0; }
+
+    .section-head {
+      display: flex; align-items: center; gap: 14px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .section-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .ic-signup  { background: rgba(124,58,255,0.12); border: 1px solid rgba(124,58,255,0.25); }
+    .ic-train   { background: rgba(6,182,212,0.12);  border: 1px solid rgba(6,182,212,0.25); }
+    .ic-forecast{ background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.25); }
+    .ic-retrain { background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.25); }
+    .ic-metrics { background: rgba(240,171,252,0.12);border: 1px solid rgba(240,171,252,0.25); }
+
+    .section-title-block { display: flex; flex-direction: column; gap: 3px; }
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.5px;
+      background: linear-gradient(90deg, var(--text), rgba(241,245,249,0.7));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .section-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 2px 8px; border-radius: 20px;
+      font-size: 8px; letter-spacing: 0.15em; text-transform: uppercase;
+      width: fit-content;
+    }
+    .badge-post   { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.3); color: var(--accent4); }
+    .badge-get    { background: rgba(6,182,212,0.12);  border: 1px solid rgba(6,182,212,0.3);  color: var(--accent2); }
+    .badge-delete { background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.3);  color: var(--accent5); }
+    .badge-ui     { background: rgba(124,58,255,0.12); border: 1px solid rgba(124,58,255,0.3);  color: var(--accent1); }
+
+    .section-body { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+    /* ── STEP ROW ── */
+    .steps { display: flex; flex-direction: column; gap: 12px; }
+    .step {
+      display: flex; gap: 14px; align-items: flex-start;
+    }
+    .step-dot {
+      width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-family: 'Bebas Neue', sans-serif;
+      margin-top: 1px;
+    }
+    .sd1 { background: rgba(124,58,255,0.15); border: 1px solid rgba(124,58,255,0.4); color: var(--accent1); }
+    .sd2 { background: rgba(6,182,212,0.15);  border: 1px solid rgba(6,182,212,0.4);  color: var(--accent2); }
+    .sd3 { background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.4); color: var(--accent4); }
+    .sd4 { background: rgba(240,171,252,0.15);border: 1px solid rgba(240,171,252,0.4);color: var(--accent3); }
+    .sd5 { background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.4);  color: var(--accent5); }
+
+    .step-content { flex: 1; }
+    .step-title {
+      font-size: 12px; color: var(--text); font-weight: 500;
+      letter-spacing: 0.05em; margin-bottom: 4px;
+    }
+    .step-desc {
+      font-size: 11px; color: var(--muted); line-height: 1.7;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── CODE BLOCK ── */
+    .code-block {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; overflow: hidden;
+    }
+    .code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .code-lang {
+      font-size: 8px; color: var(--muted);
+      letter-spacing: 0.2em; text-transform: uppercase;
+    }
+    .code-dots { display: flex; gap: 5px; }
+    .code-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .cd-r { background: #f87171; opacity: 0.6; }
+    .cd-y { background: var(--accent5); opacity: 0.6; }
+    .cd-g { background: var(--accent4); opacity: 0.6; }
+    pre {
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; line-height: 1.8;
+      overflow-x: auto; color: var(--text);
+    }
+    .c-kw  { color: var(--accent1); }
+    .c-str { color: var(--accent4); }
+    .c-url { color: var(--accent2); }
+    .c-cmt { color: var(--muted); font-style: italic; }
+    .c-key { color: var(--accent3); }
+    .c-val { color: var(--accent5); }
+
+    /* ── INFO ROW ── */
+    .info-row {
+      display: flex; gap: 10px; flex-wrap: wrap;
+    }
+    .info-pill {
+      display: flex; align-items: flex-start; gap: 10px;
+      flex: 1; min-width: 200px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px;
+    }
+    .info-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .info-text { font-size: 11px; color: var(--muted); line-height: 1.6; }
+    .info-text strong { color: var(--text); display: block; margin-bottom: 3px; font-size: 11px; }
+
+    /* ── RESPONSE BLOCK ── */
+    .resp-block {
+      background: rgba(52,211,153,0.04);
+      border: 1px solid rgba(52,211,153,0.12);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .resp-label {
+      font-size: 8px; color: var(--accent4);
+      letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .resp-label::before {
+      content: ''; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--accent4);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    /* ── WARNING BLOCK ── */
+    .warn-block {
+      background: rgba(251,146,60,0.06);
+      border: 1px solid rgba(251,146,60,0.2);
+      border-radius: 10px; padding: 12px 16px;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .warn-icon { font-size: 16px; flex-shrink: 0; }
+    .warn-text { font-size: 11px; color: rgba(251,146,60,0.85); line-height: 1.6; }
+    .warn-text strong { color: var(--accent5); display: block; margin-bottom: 3px; }
+
+    /* ── COLUMNS GRID ── */
+    .col-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    @media (max-width: 600px) { .col-grid { grid-template-columns: 1fr; } }
+    .col-item {
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 8px;
+    }
+    .col-name {
+      font-size: 10px; color: var(--accent2); letter-spacing: 0.05em; margin-bottom: 3px;
+    }
+    .col-desc { font-size: 10px; color: var(--muted); }
+
+    /* ── DIVIDER ── */
+    .divider-row {
+      display: flex; align-items: center; gap: 12px; margin: 4px 0 8px;
+    }
+    .divider-line {
+      flex: 1; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(124,58,255,0.25), transparent);
+    }
+    .divider-label {
+      font-size: 9px; color: rgba(100,116,139,0.5);
+      letter-spacing: 0.2em; text-transform: uppercase;
+    }
+
+    /* ── FOOTER ── */
+    .page-footer {
+      margin-top: 40px; text-align: center; font-size: 9px;
+      color: rgba(100,116,139,0.3); letter-spacing: 0.18em; text-transform: uppercase;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    .footer-dot { width: 3px; height: 3px; border-radius: 50%; background: rgba(124,58,255,0.4); }
+
+    /* ── PARTICLES ── */
+    .particles { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+    .particle {
+      position: absolute; border-radius: 50%;
+      background: var(--accent1); animation: float-up linear infinite; opacity: 0;
+    }
+    @keyframes float-up {
+      0%   { transform: translateY(100vh); opacity: 0; }
+      10%  { opacity: 0.4; }
+      90%  { opacity: 0.15; }
+      100% { transform: translateY(-100px); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Background -->
+<div class="bg-canvas">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <svg id="neural-svg" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.12;" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice"></svg>
+</div>
+<div class="scanlines"></div>
+<div class="grain"></div>
+<div class="particles" id="particles"></div>
+<div class="data-stream" id="data-stream-right"></div>
+<div class="data-stream-left" id="data-stream-left"></div>
+
+<!-- PAGE -->
+<div class="page-wrap">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="logo-area">
+      <div class="logo-hex">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="24,2 44,13 44,35 24,46 4,35 4,13" fill="none" stroke="url(#hexGrad)" stroke-width="1.5"/>
+          <polygon points="24,9 38,17 38,31 24,39 10,31 10,17" fill="rgba(124,58,255,0.1)" stroke="rgba(124,58,255,0.3)" stroke-width="1"/>
+          <defs>
+            <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#7c3aff"/>
+              <stop offset="100%" stop-color="#06b6d4"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <div class="logo-hex-inner">📖</div>
+      </div>
+      <div class="title-block">
+        <h1>User Guide</h1>
+        <div class="subtitle">Sales Forecasting · AI Engine v5.0</div>
+      </div>
+    </div>
+    <div class="status-badge">
+      <div class="status-dot"></div>
+      API Online
+    </div>
+  </div>
+
+  <!-- FLOW BAR -->
+  <div class="flow-bar">
+    <div class="flow-step">
+      <div class="flow-num n1">1</div>
+      <div class="flow-label">Sign Up<span>Create your account</span></div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-num n2">2</div>
+      <div class="flow-label">Login<span>Get your JWT token</span></div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-num n3">3</div>
+      <div class="flow-label">POST /train<span>Train your model once</span></div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-num n4">4</div>
+      <div class="flow-label">POST /forecast<span>Forecast anytime</span></div>
+    </div>
+  </div>
+
+  <!-- SECTIONS -->
+  <div id="sections-wrap">
+
+  <!-- 1. SIGNUP & LOGIN -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-signup">🔐</div>
+      <div class="section-title-block">
+        <div class="section-title">Step 1 — Sign Up &amp; Login</div>
+        <div class="section-badge badge-ui">Auth Portal</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="steps">
+        <div class="step">
+          <div class="step-dot sd1">1</div>
+          <div class="step-content">
+            <div class="step-title">Open the Login page</div>
+            <div class="step-desc">Open <span style="color:var(--accent2)">login.html</span> in your browser — you will see two tabs: Login and Sign Up.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd2">2</div>
+          <div class="step-content">
+            <div class="step-title">Create a new account</div>
+            <div class="step-desc">Click the <span style="color:var(--accent3)">Sign Up</span> tab — enter your email, password, and confirmation. A verification email will be sent; open it and click the link.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd3">3</div>
+          <div class="step-content">
+            <div class="step-title">Login and get your token</div>
+            <div class="step-desc">Switch to the <span style="color:var(--accent3)">Login</span> tab and enter your credentials. After login you will be redirected automatically to Swagger and your token will be saved.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd4">4</div>
+          <div class="step-content">
+            <div class="step-title">Confirm authorization in Swagger</div>
+            <div class="step-desc">In Swagger click the <span style="color:var(--accent5)">Authorize 🔒</span> button at the top — your token is pre-filled automatically. Click Authorize then Close.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. CSV FORMAT -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-train">📋</div>
+      <div class="section-title-block">
+        <div class="section-title">Step 2 — CSV Format</div>
+        <div class="section-badge badge-ui">Data Prep</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
+        Your CSV file must contain exactly these columns:
+      </div>
+      <div class="col-grid">
+        <div class="col-item">
+          <div class="col-name">month</div>
+          <div class="col-desc">Month date — e.g. 2024-01-01</div>
+        </div>
+        <div class="col-item">
+          <div class="col-name">product_id</div>
+          <div class="col-desc">Product identifier — e.g. P001</div>
+        </div>
+        <div class="col-item">
+          <div class="col-name">number_of_product_purchases</div>
+          <div class="col-desc">Actual sales count for that month</div>
+        </div>
+        <div class="col-item">
+          <div class="col-name">number_of_times_added_to_cart</div>
+          <div class="col-desc">Number of times the product was added to cart</div>
+        </div>
+        <div class="col-item">
+          <div class="col-name">number_of_times_add_followed_by_purchase</div>
+          <div class="col-desc">Cart additions that resulted in a purchase</div>
+        </div>
+        <div class="col-item">
+          <div class="col-name">number_of_times_add_followed_by_no_purchase</div>
+          <div class="col-desc">Cart additions that did not result in a purchase</div>
+        </div>
+      </div>
+      <div class="code-block">
+        <div class="code-header">
+          <div class="code-dots"><div class="code-dot cd-r"></div><div class="code-dot cd-y"></div><div class="code-dot cd-g"></div></div>
+          <div class="code-lang">example.csv</div>
+        </div>
+        <pre><span class="c-key">month</span>,<span class="c-key">product_id</span>,<span class="c-key">number_of_product_purchases</span>,<span class="c-key">number_of_times_added_to_cart</span>,...
+<span class="c-str">2024-01-01</span>,<span class="c-val">P001</span>,<span class="c-val">120</span>,<span class="c-val">340</span>,<span class="c-val">98</span>,<span class="c-val">242</span>
+<span class="c-str">2024-02-01</span>,<span class="c-val">P001</span>,<span class="c-val">135</span>,<span class="c-val">380</span>,<span class="c-val">110</span>,<span class="c-val">270</span>
+<span class="c-str">2024-01-01</span>,<span class="c-val">P002</span>,<span class="c-val">88</span>,<span class="c-val">210</span>,<span class="c-val">72</span>,<span class="c-val">138</span></pre>
+      </div>
+      <div class="warn-block">
+        <div class="warn-icon">⚠️</div>
+        <div class="warn-text">
+          <strong>Important</strong>
+          Each product needs data for several months so the model can learn meaningful patterns.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. TRAIN -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-train">🏋️</div>
+      <div class="section-title-block">
+        <div class="section-title">Step 3 — POST /train</div>
+        <div class="section-badge badge-post">POST · Once</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
+        Upload your full historical CSV here — the model trains on it and is saved on the server, linked exclusively to your account. You only need to do this once unless you have new, different data.
+      </div>
+
+      <div class="divider-row"><div class="divider-line"></div><div class="divider-label">In Swagger</div><div class="divider-line"></div></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-dot sd1">1</div>
+          <div class="step-content">
+            <div class="step-title">Open the /train endpoint</div>
+            <div class="step-desc">In Swagger find <span style="color:var(--accent4)">POST /train</span> and click on it.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd2">2</div>
+          <div class="step-content">
+            <div class="step-title">Click "Try it out"</div>
+            <div class="step-desc">An Upload File button will appear — select your CSV file.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd3">3</div>
+          <div class="step-content">
+            <div class="step-title">Click Execute</div>
+            <div class="step-desc">Wait a moment — training time depends on your data size. When done you will see a response with model metrics.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="resp-block">
+        <div class="resp-label">Response — JSON</div>
+        <pre style="padding:0;background:transparent;font-size:11px;"><span class="c-kw">{</span>
+  <span class="c-key">"message"</span>:       <span class="c-str">"✅ Model trained and saved successfully"</span>,
+  <span class="c-key">"model_name"</span>:    <span class="c-str">"XGBoost"</span>,
+  <span class="c-key">"train_rmse"</span>:    <span class="c-val">0.9234</span>,
+  <span class="c-key">"val_rmse"</span>:      <span class="c-val">1.4970</span>,
+  <span class="c-key">"baseline_rmse"</span>: <span class="c-val">18.1430</span>,
+  <span class="c-key">"best_lags"</span>:     <span class="c-val">3</span>,
+  <span class="c-key">"best_roll"</span>:     <span class="c-val">3</span>
+<span class="c-kw">}</span></pre>
+      </div>
+
+      <div class="info-row">
+        <div class="info-pill">
+          <div class="info-icon">💡</div>
+          <div class="info-text"><strong>val_rmse</strong>The lower the value, the more accurate the model's predictions.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">💾</div>
+          <div class="info-text"><strong>Persisted on server</strong>If you restart the server your model will still be there — no need to retrain.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. FORECAST -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-forecast">🚀</div>
+      <div class="section-title-block">
+        <div class="section-title">Step 4 — POST /forecast</div>
+        <div class="section-badge badge-post">POST · Anytime</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
+        Once you have run <span style="color:var(--accent2)">/train</span> once, you can use <span style="color:var(--accent4)">/forecast</span> anytime at full speed — no retraining involved. Upload a CSV with your current data and get a two-month prediction instantly.
+      </div>
+
+      <div class="divider-row"><div class="divider-line"></div><div class="divider-label">In Swagger</div><div class="divider-line"></div></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-dot sd1">1</div>
+          <div class="step-content">
+            <div class="step-title">Open the /forecast endpoint</div>
+            <div class="step-desc">In Swagger find <span style="color:var(--accent4)">POST /forecast</span> and click "Try it out".</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd2">2</div>
+          <div class="step-content">
+            <div class="step-title">Upload your CSV</div>
+            <div class="step-desc">You can upload the same historical CSV or a newer one — the format is identical.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd3">3</div>
+          <div class="step-content">
+            <div class="step-title">Click Execute and download the result</div>
+            <div class="step-desc">A CSV file containing the two-month forecast for each product will be returned. Click <span style="color:var(--accent5)">Download file</span> in Swagger.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="resp-block">
+        <div class="resp-label">Response — CSV Download</div>
+        <pre style="padding:0;background:transparent;font-size:11px;"><span class="c-key">product_id</span>,<span class="c-key">forecast_month</span>,<span class="c-key">predicted_purchases</span>
+<span class="c-val">P001</span>,<span class="c-str">2025-01</span>,<span class="c-val">142.50</span>
+<span class="c-val">P001</span>,<span class="c-str">2025-02</span>,<span class="c-val">158.30</span>
+<span class="c-val">P002</span>,<span class="c-str">2025-01</span>,<span class="c-val">96.00</span>
+<span class="c-val">P002</span>,<span class="c-str">2025-02</span>,<span class="c-val">103.75</span></pre>
+      </div>
+
+      <div class="warn-block">
+        <div class="warn-icon">⚠️</div>
+        <div class="warn-text">
+          <strong>If you get a 404 error</strong>
+          It means you have not run /train yet — go back to Step 3 first.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. RETRAIN / DELETE -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-retrain">🔄</div>
+      <div class="section-title-block">
+        <div class="section-title">Retrain — DELETE /model</div>
+        <div class="section-badge badge-delete">DELETE · Optional</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
+        If you have new data or want to retrain from scratch — delete the saved model first, then upload the new data to <span style="color:var(--accent2)">/train</span>.
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-dot sd5">1</div>
+          <div class="step-content">
+            <div class="step-title">Open DELETE /model in Swagger</div>
+            <div class="step-desc">Click "Try it out" then Execute — this deletes only your saved model, no one else's.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-dot sd1">2</div>
+          <div class="step-content">
+            <div class="step-title">Go back to POST /train</div>
+            <div class="step-desc">Upload your new CSV and the model will be retrained from scratch on the fresh data.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. METRICS -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-metrics">📊</div>
+      <div class="section-title-block">
+        <div class="section-title">GET /metrics — Check Model Performance</div>
+        <div class="section-badge badge-get">GET</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
+        At any time you can view the performance metrics of your saved model without uploading any file.
+      </div>
+      <div class="info-row">
+        <div class="info-pill">
+          <div class="info-icon">📉</div>
+          <div class="info-text"><strong>val_rmse</strong>Average error on validation data — the lower the better.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">📏</div>
+          <div class="info-text"><strong>baseline_rmse</strong>Error with no model at all — shows how much better your model is vs. a naive baseline.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">🎯</div>
+          <div class="info-text"><strong>train_rmse</strong>Error on training data — if much lower than val_rmse, the model may be overfitting.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">🔢</div>
+          <div class="info-text"><strong>best_lags / best_roll</strong>Number of past months the model relied on during training.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- end sections -->
+
+  <div style="display:flex;justify-content:center;gap:14px;flex-wrap:wrap;margin-bottom:32px;">
+    <a href="/about" style="text-decoration:none;">
+      <button style="
+        display:flex;align-items:center;gap:10px;
+        padding:14px 28px;
+        background:rgba(255,255,255,0.04);
+        border:1px solid rgba(255,255,255,0.1);
+        color:#64748b;
+        font-family:'JetBrains Mono',monospace;
+        font-size:12px;font-weight:500;
+        letter-spacing:0.15em;text-transform:uppercase;
+        border-radius:12px;cursor:pointer;
+        transition:transform 0.2s,border-color 0.2s,color 0.2s;
+      "
+      onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='rgba(124,58,255,0.3)';this.style.color='#f1f5f9'"
+      onmouseout="this.style.transform='translateY(0)';this.style.borderColor='rgba(255,255,255,0.1)';this.style.color='#64748b'"
+      >
+        <span style="font-size:15px;">←</span>
+        About Platform
+      </button>
+    </a>
+    <a href="/app" style="text-decoration:none;">
+      <button style="
+        display:flex;align-items:center;gap:10px;
+        padding:14px 32px;
+        background:linear-gradient(135deg,#7c3aff 0%,#5b21b6 50%,#06b6d4 100%);
+        background-size:200% 200%;
+        color:#fff;
+        font-family:'JetBrains Mono',monospace;
+        font-size:13px;font-weight:500;
+        letter-spacing:0.15em;text-transform:uppercase;
+        border:none;border-radius:12px;cursor:pointer;
+        box-shadow:0 6px 28px rgba(124,58,255,0.4);
+        position:relative;overflow:hidden;
+        animation:grad-shift 5s ease infinite;
+        transition:transform 0.2s,box-shadow 0.2s;
+      "
+      onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 12px 40px rgba(124,58,255,0.6)'"
+      onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 6px 28px rgba(124,58,255,0.4)'"
+      >
+        <span style="font-size:16px;">🔐</span>
+        Go to Login Page
+        <span style="font-size:14px;opacity:0.8;">→</span>
+      </button>
+    </a>
+  </div>
+
+  <div class="page-footer">
+    <span>Sales Forecasting AI</span>
+    <div class="footer-dot"></div>
+    <span>v5.0.0</span>
+    <div class="footer-dot"></div>
+    <span>User Guide</span>
+  </div>
+
+  <style>
+    @keyframes grad-shift {
+      0%,100% { background-position: 0% 50%; }
+      50%      { background-position: 100% 50%; }
+    }
+  </style>
+
+</div><!-- end page-wrap -->
+
+<script>
+  /* ── Particles ── */
+  const pColors = ['#7c3aff','#06b6d4','#f0abfc','#34d399','rgba(255,255,255,0.6)'];
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.left              = Math.random() * 100 + 'vw';
+    p.style.animationDuration = (10 + Math.random() * 16) + 's';
+    p.style.animationDelay    = (Math.random() * 16) + 's';
+    p.style.background        = pColors[Math.floor(Math.random() * pColors.length)];
+    p.style.width = p.style.height = (1 + Math.random() * 2.5) + 'px';
+    p.style.borderRadius = Math.random() > 0.5 ? '50%' : '1px';
+    container.appendChild(p);
+  }
+
+  /* ── Neural SVG ── */
+  (function() {
+    const svg = document.getElementById('neural-svg');
+    const nodes = [];
+    for (let i = 0; i < 28; i++) {
+      nodes.push({ x: Math.random() * 1200, y: Math.random() * 700 });
+    }
+    let html = '';
+    nodes.forEach((n, i) => {
+      nodes.forEach((m, j) => {
+        if (j <= i) return;
+        const d = Math.hypot(n.x - m.x, n.y - m.y);
+        if (d < 220) {
+          const op = (1 - d / 220) * 0.6;
+          html += `<line x1="${n.x}" y1="${n.y}" x2="${m.x}" y2="${m.y}" stroke="#7c3aff" stroke-width="0.8" stroke-opacity="${op}"/>`;
+        }
+      });
+    });
+    nodes.forEach(n => {
+      html += `<circle cx="${n.x}" cy="${n.y}" r="2.5" fill="#7c3aff" fill-opacity="0.6"/>`;
+    });
+    svg.innerHTML = html;
+  })();
+
+  /* ── Data Streams ── */
+  const streamVals = ['0.924','1.497','18.14','91.7%','XGB','RIDGE','LAG_3','ROLL_3','FIT','PRED','CSV','UID','JWT','TRAIN','VAL','RMSE','▲12.4%','P001','P002','2025-01','2025-02'];
+  const streamR = document.getElementById('data-stream-right');
+  const streamL = document.getElementById('data-stream-left');
+  for (let c = 0; c < 3; c++) {
+    const col = document.createElement('div');
+    col.className = 'stream-col';
+    col.style.left = (c * 60 + 10) + 'px';
+    col.style.animationDuration = (12 + c * 4) + 's';
+    col.style.animationDelay    = -(c * 5) + 's';
+    for (let r = 0; r < 30; r++) col.appendChild(Object.assign(document.createElement('div'), { textContent: streamVals[Math.floor(Math.random() * streamVals.length)] }));
+    streamR.appendChild(col);
+  }
+  for (let c = 0; c < 2; c++) {
+    const col = document.createElement('div');
+    col.className = 'stream-col-l';
+    col.style.left = (c * 65 + 8) + 'px';
+    col.style.animationDuration = (14 + c * 3) + 's';
+    col.style.animationDelay    = -(c * 7) + 's';
+    for (let r = 0; r < 30; r++) col.appendChild(Object.assign(document.createElement('div'), { textContent: streamVals[Math.floor(Math.random() * streamVals.length)] }));
+    streamL.appendChild(col);
+  }
+</script>
+</body>
+</html>

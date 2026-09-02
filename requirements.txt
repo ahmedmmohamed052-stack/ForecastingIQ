@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pandas
+numpy
+scikit-learn==1.7.0
+xgboost
+joblib
+firebase-admin
+python-multipart
+python-dotenv
+httpx
+# Error tracking (used if you set SENTRY_DSN in .env):
+sentry-sdk[fastapi]

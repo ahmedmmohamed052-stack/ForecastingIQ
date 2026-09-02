@@ -1,0 +1,49 @@
+// =============================================================================
+// 🔐 Firestore Security Rules — deny all direct client access
+// =============================================================================
+// Your frontend (Sales-Forecast-app.html / dashboard.html) only ever uses
+// the Firebase client SDK for AUTHENTICATION (login/signup). It never reads
+// or writes Firestore directly — every read/write in this app goes through
+// your FastAPI backend, which uses the Firebase ADMIN SDK.
+//
+// The Admin SDK always bypasses these rules entirely, running with full
+// trusted access — so it keeps working no matter what you put here. These
+// rules only ever apply to CLIENT-side requests (web/mobile apps using
+// firebase.firestore()).
+//
+// Since nothing legitimate ever needs client-side Firestore access, the
+// correct and simplest rule is to deny it completely. This closes the
+// exact hole you were right to worry about: your Firebase web config
+// (apiKey, project id, etc.) is public in the page source by design —
+// that's normal and fine for Firebase Auth — but if Firestore rules were
+// left at their default "test mode" (allow read, write: if true;) or
+// anything permissive, anyone could open the browser console, call
+// firebase.firestore(), and read or overwrite every user's models,
+// forecasts, usage counters and subscription status directly, completely
+// bypassing your API, your quota checks, and your billing.
+//
+// HOW TO APPLY THIS:
+//   Firebase Console -> Firestore Database -> Rules tab -> paste this in
+//   -> Publish. (Or via CLI: `firebase deploy --only firestore:rules` if
+//   you have the Firebase CLI + firebase.json set up.)
+//
+// If you ever DO want a client to read its own data directly (skipping
+// your API), replace the relevant block below with a scoped rule like:
+//   match /users/{uid} {
+//     allow read: if request.auth != null && request.auth.uid == uid;
+//   }
+// but you do not need that for how this app currently works — the API
+// already handles all reads/writes with the Admin SDK.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Deny everything by default. Only the Admin SDK (used by your FastAPI
+    // backend) can read or write — it bypasses these rules entirely.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

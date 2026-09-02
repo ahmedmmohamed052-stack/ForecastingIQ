@@ -1,0 +1,13 @@
+2026-09-01 22:53:05 | INFO     | forecastiq | SENTRY_DSN not set — errors will only go to console + logs/forecastiq.log. Set SENTRY_DSN in .env for real-time error alerts (see https://sentry.io).
+2026-09-01 23:06:21 | INFO     | forecastiq | Sentry error tracking enabled
+2026-09-01 23:06:23 | INFO     | forecastiq | Firebase initialized (environment=development)
+2026-09-01 23:06:23 | INFO     | forecastiq | Training job queue started with 1 worker(s)
+2026-09-01 23:16:10 | INFO     | forecastiq | Sentry error tracking enabled
+2026-09-01 23:16:11 | INFO     | forecastiq | Firebase initialized (environment=development)
+2026-09-01 23:16:11 | INFO     | forecastiq | Training job queue started with 1 worker(s)
+2026-09-01 23:25:00 | INFO     | forecastiq | Sentry error tracking enabled
+2026-09-01 23:25:01 | INFO     | forecastiq | Firebase initialized (environment=development)
+2026-09-01 23:25:01 | INFO     | forecastiq | Training job queue started with 1 worker(s)
+2026-09-02 22:43:47 | INFO     | forecastiq | Sentry error tracking enabled
+2026-09-02 22:43:55 | INFO     | forecastiq | Firebase initialized (environment=development)
+2026-09-02 22:43:55 | INFO     | forecastiq | Training job queue started with 1 worker(s)

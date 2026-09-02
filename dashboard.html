@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Forecast Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&family=Bebas+Neue&display=swap" rel="stylesheet"/>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<style>
+:root {
+  --bg:#03040a; --surface:#080c18; --card:#0b0f1e;
+  --a1:#7c3aff; --a2:#06b6d4; --a3:#f0abfc; --a4:#34d399; --a5:#fb923c;
+  --text:#f1f5f9; --muted:#64748b;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'JetBrains Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+ 
+/* BG */
+.bg-canvas{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;}
+.orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:0.2;animation:drift 18s ease-in-out infinite alternate;}
+.o1{width:700px;height:700px;background:radial-gradient(circle,#7c3aff,transparent 70%);top:-20%;left:-15%;}
+.o2{width:500px;height:500px;background:radial-gradient(circle,#06b6d4,transparent 70%);bottom:-10%;right:-10%;animation-delay:-6s;}
+.o3{width:400px;height:400px;background:radial-gradient(circle,#f0abfc,transparent 70%);top:40%;left:55%;animation-delay:-11s;}
+@keyframes drift{0%{transform:translate(0,0) scale(1);}50%{transform:translate(25px,-20px) scale(1.05);}100%{transform:translate(-10px,35px) scale(0.95);}}
+.scanlines{position:fixed;inset:0;z-index:1;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.035) 2px,rgba(0,0,0,0.035) 4px);}
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:0.025;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:150px;}
+ 
+/* LAYOUT */
+.shell{position:relative;z-index:10;display:grid;grid-template-rows:auto 1fr;min-height:100vh;}
+ 
+/* NAV */
+nav{display:flex;align-items:center;justify-content:space-between;padding:16px 36px;background:rgba(8,12,24,0.88);border-bottom:1px solid rgba(124,58,255,0.15);backdrop-filter:blur(24px);position:sticky;top:0;z-index:50;}
+.nav-brand{display:flex;align-items:center;gap:12px;}
+.nav-hex{width:36px;height:36px;position:relative;display:flex;align-items:center;justify-content:center;}
+.nav-hex svg{position:absolute;inset:0;width:100%;height:100%;}
+.nav-hex-inner{position:relative;z-index:1;font-size:15px;}
+.nav-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.nav-right{display:flex;align-items:center;gap:14px;}
+.user-pill{display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(124,58,255,0.08);border:1px solid rgba(124,58,255,0.2);border-radius:20px;font-size:11px;color:var(--a3);letter-spacing:0.05em;}
+.user-dot{width:5px;height:5px;border-radius:50%;background:var(--a4);box-shadow:0 0 6px var(--a4);animation:pdot 2s ease-in-out infinite;}
+@keyframes pdot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.8);}}
+.btn-logout{padding:6px 14px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;color:#f87171;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:all .2s;}
+.btn-logout:hover{background:rgba(248,113,113,0.15);border-color:rgba(248,113,113,0.4);}
+ 
+/* MAIN */
+main{padding:36px 36px 60px;display:flex;flex-direction:column;gap:28px;}
+ 
+/* METRICS BAR */
+.metrics-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+.metric-card{background:linear-gradient(160deg,rgba(11,15,30,.97),rgba(8,12,24,.99));border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .25s,transform .2s;animation:fadeUp .6s cubic-bezier(.34,1.56,.64,1) both;}
+.metric-card:hover{border-color:rgba(124,58,255,.3);transform:translateY(-2px);}
+.metric-card::before{content:'';position:absolute;top:-1px;left:-1px;width:18px;height:18px;border-top:2px solid var(--a1);border-left:2px solid var(--a1);border-radius:14px 0 0 0;}
+.metric-card:nth-child(1){animation-delay:.05s;} .metric-card:nth-child(2){animation-delay:.1s;} .metric-card:nth-child(3){animation-delay:.15s;} .metric-card:nth-child(4){animation-delay:.2s;}
+.metric-label{font-size:8px;color:var(--muted);letter-spacing:.2em;text-transform:uppercase;margin-bottom:8px;}
+.metric-val{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1px;line-height:1;background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.metric-sub{font-size:9px;color:var(--muted);margin-top:5px;}
+.metric-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:20px;font-size:8px;margin-top:6px;}
+.mb-good{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);color:var(--a4);}
+.mb-none{background:rgba(100,116,139,.1);border:1px solid rgba(100,116,139,.2);color:var(--muted);}
+ 
+/* PANELS GRID */
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+@media(max-width:900px){.panels,.bottom-row,.metrics-bar{grid-template-columns:1fr 1fr;}}
+@media(max-width:600px){.panels,.bottom-row,.metrics-bar{grid-template-columns:1fr;}}
+ 
+/* PANEL */
+.panel{background:linear-gradient(160deg,rgba(11,15,30,.97),rgba(8,12,24,.99));border:1px solid rgba(124,58,255,.15);border-radius:18px;overflow:hidden;animation:fadeUp .6s cubic-bezier(.34,1.56,.64,1) both;position:relative;}
+.panel:nth-child(1){animation-delay:.25s;} .panel:nth-child(2){animation-delay:.32s;}
+.panel::before,.panel::after{content:'';position:absolute;width:18px;height:18px;pointer-events:none;}
+.panel::before{top:-1px;left:-1px;border-top:2px solid var(--a1);border-left:2px solid var(--a1);border-radius:18px 0 0 0;}
+.panel::after{top:-1px;right:-1px;border-top:2px solid var(--a2);border-right:2px solid var(--a2);border-radius:0 18px 0 0;}
+.panel-head{display:flex;align-items:center;gap:12px;padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,.04);}
+.panel-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.pi-train{background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.25);}
+.pi-forecast{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);}
+.panel-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;background:linear-gradient(90deg,var(--text),rgba(241,245,249,.6));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.panel-badge{font-size:8px;padding:2px 8px;border-radius:20px;letter-spacing:.15em;text-transform:uppercase;margin-left:auto;}
+.pb-cyan{background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.25);color:var(--a2);}
+.pb-green{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);color:var(--a4);}
+.panel-body{padding:22px 24px 26px;display:flex;flex-direction:column;gap:14px;}
+ 
+/* DROP ZONE */
+.drop-zone{border:2px dashed rgba(124,58,255,.25);border-radius:12px;padding:26px 20px;text-align:center;cursor:pointer;transition:all .25s;position:relative;background:rgba(124,58,255,.03);}
+.drop-zone:hover,.drop-zone.drag-over{border-color:rgba(124,58,255,.6);background:rgba(124,58,255,.07);}
+.drop-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.drop-icon{font-size:26px;margin-bottom:7px;}
+.drop-text{font-size:11px;color:var(--muted);}
+.drop-text span{color:var(--a2);text-decoration:underline dotted;}
+.drop-fname{font-size:10px;color:var(--a4);margin-top:5px;}
+/* MONTHS SELECTOR */
+.months-selector{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.month-opt{position:relative;}
+.month-opt input[type=radio]{position:absolute;opacity:0;width:0;height:0;}
+.month-opt label{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 6px;border:1px solid rgba(52,211,153,.2);border-radius:10px;cursor:pointer;transition:all .2s;background:rgba(52,211,153,.03);gap:3px;}
+.month-opt label:hover{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.07);}
+.month-opt input:checked + label{border-color:var(--a4);background:rgba(52,211,153,.12);box-shadow:0 0 14px rgba(52,211,153,.15);}
+.month-opt-num{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--a4);line-height:1;}
+.month-opt-lbl{font-size:8px;color:var(--muted);letter-spacing:.15em;text-transform:uppercase;}
+.months-label{font-size:9px;color:var(--muted);letter-spacing:.15em;text-transform:uppercase;margin-bottom:4px;}
+ 
+ 
+/* ACTION BUTTON */
+.btn-action{width:100%;padding:13px;border:none;border-radius:11px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;}
+.btn-train{background:linear-gradient(135deg,var(--a2),#0891b2);color:#fff;box-shadow:0 6px 24px rgba(6,182,212,.3);}
+.btn-train:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(6,182,212,.45);}
+.btn-forecast{background:linear-gradient(135deg,var(--a4),#059669);color:#022c22;box-shadow:0 6px 24px rgba(52,211,153,.3);}
+.btn-forecast:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(52,211,153,.45);}
+.btn-action:disabled{opacity:.45;cursor:not-allowed;transform:none !important;}
+.btn-action::before{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);transform:skewX(-20deg);animation:shimmer 2.5s ease-in-out infinite;}
+@keyframes shimmer{0%,100%{left:-100%;}50%{left:150%;}}
+ 
+/* STATUS BOX */
+.status-box{border-radius:10px;padding:11px 14px;font-size:11px;line-height:1.7;display:flex;align-items:flex-start;gap:8px;transition:all .3s;}
+.sb-idle{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);color:var(--muted);}
+.sb-loading{background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.2);color:var(--a2);}
+.sb-success{background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.2);color:var(--a4);}
+.sb-error{background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);color:#f87171;}
+.sb-icon{font-size:14px;flex-shrink:0;margin-top:1px;}
+ 
+/* PROGRESS */
+.prog-wrap{height:3px;background:rgba(255,255,255,.05);border-radius:99px;overflow:hidden;}
+.prog-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--a1),var(--a2));border-radius:99px;}
+.prog-bar.run{animation:prog 1.4s ease-in-out infinite;}
+@keyframes prog{0%{width:0%;margin-left:0%;}50%{width:60%;margin-left:20%;}100%{width:0%;margin-left:100%;}}
+ 
+/* RESULT PANEL */
+.result-panel{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.05);border-radius:10px;overflow:hidden;display:none;}
+.result-panel.on{display:block;}
+.result-head{padding:9px 14px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.04);font-size:8px;color:var(--muted);letter-spacing:.2em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;}
+.rh-dot{width:5px;height:5px;border-radius:50%;background:var(--a4);animation:pdot 2s ease-in-out infinite;}
+.result-body{padding:14px;}
+.res-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;}
+.res-item{padding:10px 12px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04);border-radius:8px;}
+.res-key{font-size:8px;color:var(--muted);letter-spacing:.15em;text-transform:uppercase;margin-bottom:4px;}
+.res-val{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+ 
+/* TABLE */
+.tbl-wrap{overflow-x:auto;border-radius:8px;border:1px solid rgba(255,255,255,.05);}
+table{width:100%;border-collapse:collapse;font-size:10px;}
+thead tr{background:rgba(124,58,255,.08);}
+th{padding:8px 12px;text-align:left;color:var(--a3);letter-spacing:.1em;text-transform:uppercase;font-size:8px;border-bottom:1px solid rgba(255,255,255,.06);}
+td{padding:8px 12px;color:var(--text);border-bottom:1px solid rgba(255,255,255,.03);}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(124,58,255,.04);}
+.btn-dl{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;cursor:pointer;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);color:var(--a4);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;transition:all .2s;margin-top:12px;}
+.btn-dl:hover{background:rgba(52,211,153,.18);}
+.btn-insights{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;cursor:pointer;background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);color:var(--a3);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;transition:all .2s;margin-top:12px;margin-left:8px;}
+.btn-insights:hover{background:rgba(240,171,252,.18);}
+ 
+/* BOTTOM ROW */
+.bottom-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;animation:fadeUp .6s cubic-bezier(.34,1.56,.64,1) .38s both;}
+.sub-panel{background:linear-gradient(160deg,rgba(11,15,30,.97),rgba(8,12,24,.99));border-radius:18px;overflow:hidden;position:relative;}
+.sp-metrics{border:1px solid rgba(124,58,255,.15);}
+.sp-metrics::before{content:'';position:absolute;top:-1px;left:-1px;width:18px;height:18px;border-top:2px solid var(--a3);border-left:2px solid var(--a3);border-radius:18px 0 0 0;}
+.sp-danger{border:1px solid rgba(248,113,113,.12);}
+.sp-danger::before{content:'';position:absolute;top:-1px;left:-1px;width:18px;height:18px;border-top:2px solid #f87171;border-left:2px solid #f87171;border-radius:18px 0 0 0;}
+.btn-refresh{width:100%;padding:12px;border:none;border-radius:11px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;background:rgba(240,171,252,.08);border:1px solid rgba(240,171,252,.2);color:var(--a3);transition:all .2s;}
+.btn-refresh:hover{background:rgba(240,171,252,.14);}
+.btn-delete{width:100%;padding:12px;border:none;border-radius:11px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.18);color:#f87171;transition:all .2s;}
+.btn-delete:hover{background:rgba(248,113,113,.13);}
+ 
+@keyframes fadeUp{from{opacity:0;transform:translateY(26px);}to{opacity:1;transform:translateY(0);}}
+.spin{display:inline-block;width:10px;height:10px;border:1.5px solid rgba(6,182,212,.3);border-top-color:var(--a2);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:4px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+ 
+<div class="bg-canvas">
+  <div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+  <svg id="nsvg" style="position:absolute;inset:0;width:100%;height:100%;opacity:.1;" viewBox="0 0 1400 800" preserveAspectRatio="xMidYMid slice"></svg>
+</div>
+<div class="scanlines"></div><div class="grain"></div>
+ 
+<div class="shell">
+  <!-- NAV -->
+  <nav>
+    <div class="nav-brand">
+      <div class="nav-hex">
+        <svg viewBox="0 0 48 48" fill="none"><polygon points="24,2 44,13 44,35 24,46 4,35 4,13" fill="none" stroke="url(#hg)" stroke-width="1.5"/><polygon points="24,9 38,17 38,31 24,39 10,31 10,17" fill="rgba(124,58,255,0.1)" stroke="rgba(124,58,255,0.3)" stroke-width="1"/><defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#7c3aff"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs></svg>
+        <div class="nav-hex-inner">⚡</div>
+      </div>
+      <div class="nav-title">Forecast Dashboard</div>
+    </div>
+    <div class="nav-right">
+      <div class="user-pill"><div class="user-dot"></div><span id="nav-email">loading...</span></div>
+      <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+  </nav>
+ 
+  <main>
+    <!-- METRICS BAR -->
+    <div class="metrics-bar">
+      <div class="metric-card">
+        <div class="metric-label">Model Status</div>
+        <div class="metric-val" id="m-status">—</div>
+        <div id="m-badge" class="metric-badge mb-none">No Model</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Val RMSE</div>
+        <div class="metric-val" id="m-val">—</div>
+        <div class="metric-sub">validation error</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Baseline RMSE</div>
+        <div class="metric-val" id="m-base">—</div>
+        <div class="metric-sub">naive reference</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Forecast Accuracy</div>
+        <div class="metric-val" id="m-acc">—</div>
+        <div class="metric-sub">vs baseline</div>
+      </div>
+    </div>
+
+    <!-- BILLING / SUBSCRIPTION -->
+    <div class="panel" id="billing-panel" style="margin-bottom:22px;">
+      <div style="padding:20px 24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <h3 style="margin:0; font-size:14px; letter-spacing:.08em; text-transform:uppercase; opacity:.85;">Subscription</h3>
+        </div>
+        <div class="status-box sb-idle" id="st-billing" style="margin-bottom:16px;">
+          <span class="sb-icon">💳</span><span>Loading subscription status...</span>
+        </div>
+        <div id="plans-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px;"></div>
+      </div>
+    </div>
+ 
+    <!-- MAIN PANELS -->
+    <div class="panels">
+      <!-- TRAIN -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-icon pi-train">🏋️</div>
+          <div class="panel-title">Train Model</div>
+          <span class="panel-badge pb-cyan">POST /train</span>
+        </div>
+        <div class="panel-body">
+          <div class="drop-zone" id="dz-train" ondragover="onDrag(event,'dz-train')" ondragleave="offDrag('dz-train')" ondrop="onDrop(event,'train')">
+            <input type="file" accept=".csv" id="f-train" onchange="onFile('train')"/>
+            <div class="drop-icon">📂</div>
+            <div class="drop-text">Drop CSV here or <span>browse</span></div>
+            <div class="drop-fname" id="fn-train"></div>
+          </div>
+          <div class="prog-wrap"><div class="prog-bar" id="pb-train"></div></div>
+          <button class="btn-action btn-train" id="btn-train" onclick="doTrain()" disabled>Train Model</button>
+          <div class="status-box sb-idle" id="st-train"><span class="sb-icon">💡</span><span>Upload your full historical CSV to train the model.</span></div>
+          <div class="result-panel" id="res-train">
+            <div class="result-head"><span>Training Metrics</span><div class="rh-dot"></div></div>
+            <div class="result-body">
+              <div class="res-grid">
+                <div class="res-item"><div class="res-key">Model</div><div class="res-val" id="r-model">—</div></div>
+                <div class="res-item"><div class="res-key">Train RMSE</div><div class="res-val" id="r-trmse">—</div></div>
+                <div class="res-item"><div class="res-key">Val RMSE</div><div class="res-val" id="r-vrmse">—</div></div>
+                <div class="res-item"><div class="res-key">Baseline</div><div class="res-val" id="r-brmse">—</div></div>
+                <div class="res-item"><div class="res-key">Best Lags</div><div class="res-val" id="r-lags">—</div></div>
+                <div class="res-item"><div class="res-key">Best Roll</div><div class="res-val" id="r-roll">—</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+ 
+      <!-- FORECAST -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-icon pi-forecast">🚀</div>
+          <div class="panel-title">Get Forecast</div>
+          <span class="panel-badge pb-green">POST /forecast</span>
+        </div>
+        <div class="panel-body">
+          <div class="drop-zone" id="dz-fc" ondragover="onDrag(event,'dz-fc')" ondragleave="offDrag('dz-fc')" ondrop="onDrop(event,'forecast')">
+            <input type="file" accept=".csv" id="f-fc" onchange="onFile('forecast')"/>
+            <div class="drop-icon">📈</div>
+            <div class="drop-text">Drop CSV here or <span>browse</span></div>
+            <div class="drop-fname" id="fn-fc"></div>
+          </div>
+          <div class="months-label">Forecast Horizon</div>
+          <div class="months-selector">
+            <div class="month-opt">
+              <input type="radio" name="fc-months" id="m3" value="3" checked/>
+              <label for="m3"><span class="month-opt-num">3</span><span class="month-opt-lbl">months</span></label>
+            </div>
+            <div class="month-opt">
+              <input type="radio" name="fc-months" id="m6" value="6"/>
+              <label for="m6"><span class="month-opt-num">6</span><span class="month-opt-lbl">months</span></label>
+            </div>
+            <div class="month-opt">
+              <input type="radio" name="fc-months" id="m9" value="9"/>
+              <label for="m9"><span class="month-opt-num">9</span><span class="month-opt-lbl">months</span></label>
+            </div>
+            <div class="month-opt">
+              <input type="radio" name="fc-months" id="m12" value="12"/>
+              <label for="m12"><span class="month-opt-num">12</span><span class="month-opt-lbl">months</span></label>
+            </div>
+          </div>
+          <div class="prog-wrap"><div class="prog-bar" id="pb-fc"></div></div>
+          <button class="btn-action btn-forecast" id="btn-fc" onclick="doForecast()" disabled>Run Forecast</button>
+          <div class="status-box sb-idle" id="st-fc"><span class="sb-icon">💡</span><span>Upload a CSV and select a forecast horizon.</span></div>
+          <div class="result-panel" id="res-fc">
+            <div class="result-head"><span>Forecast Results</span><div class="rh-dot"></div></div>
+            <div class="result-body">
+              <div class="tbl-wrap"><table id="fc-table"><thead></thead><tbody></tbody></table></div>
+              <button class="btn-dl" onclick="downloadCSV()">⬇ Download CSV</button>
+              <button class="btn-insights" onclick="viewInsights()">📊 View Insights</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+ 
+    <!-- BOTTOM ROW -->
+    <div class="bottom-row">
+      <!-- METRICS -->
+      <div class="sub-panel sp-metrics">
+        <div class="panel-head">
+          <div class="panel-icon" style="background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);">📊</div>
+          <div class="panel-title">Model Metrics</div>
+          <span class="panel-badge" style="background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.25);color:var(--a2);font-size:8px;padding:2px 8px;border-radius:20px;letter-spacing:.15em;text-transform:uppercase;margin-left:auto;">GET /metrics</span>
+        </div>
+        <div class="panel-body">
+          <button class="btn-refresh" onclick="fetchMetrics()">↻ Refresh Metrics</button>
+          <div class="status-box sb-idle" id="st-metrics"><span class="sb-icon">📡</span><span>Click to load your saved model metrics.</span></div>
+        </div>
+      </div>
+ 
+      <!-- DANGER -->
+      <div class="sub-panel sp-danger">
+        <div class="panel-head">
+          <div class="panel-icon" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);">🗑️</div>
+          <div class="panel-title" style="background:linear-gradient(90deg,#f87171,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Danger Zone</div>
+          <span class="panel-badge" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);color:#f87171;font-size:8px;padding:2px 8px;border-radius:20px;letter-spacing:.15em;text-transform:uppercase;margin-left:auto;">DELETE /model</span>
+        </div>
+        <div class="panel-body">
+          <div class="status-box" style="background:rgba(248,113,113,.04);border:1px solid rgba(248,113,113,.1);color:rgba(248,113,113,.7);"><span class="sb-icon">⚠️</span><span>Permanently deletes your model. You will need to retrain from scratch.</span></div>
+          <div class="status-box sb-idle" id="st-delete" style="display:none;"><span class="sb-icon"></span><span></span></div>
+          <button class="btn-delete" onclick="doDelete()">🗑 Delete My Model</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+ 
+<script>
+// Auto-detects local vs deployed — same file works either way.
+const API = new URLSearchParams(location.search).get("api") || location.origin;
+ 
+// ── Firebase init ──────────────────────────────────────────────────────────
+firebase.initializeApp({
+  apiKey:     "AIzaSyBTi0hycT_nCgThOoLDLDfXhCuLWeKcPMU",
+  authDomain: "sales-forecasting-75f26.firebaseapp.com"
+});
+const auth = firebase.auth();
+ 
+// ── Dev-mode support ─────────────────────────────────────────────────────
+// If a developer password was saved (via the "Continue as developer" link
+// on the login page), every API call uses X-Dev-Password instead of a
+// Firebase token, and the Firebase auth guard below is skipped entirely.
+function isDevMode() {
+  return !!localStorage.getItem("devPassword");
+}
+function currentUserLabel() {
+  return isDevMode() ? "dev@local.test" : (auth.currentUser?.email || "unknown");
+}
+
+// ── Auth guard ─────────────────────────────────────────────────────────────
+// _authHandled: يمنع onAuthStateChanged يتنادي أكتر من مرة
+let _authHandled = false;
+if (isDevMode()) {
+  document.getElementById("nav-email").textContent = currentUserLabel() + " (dev mode)";
+  fetchMetrics();
+  fetchBillingStatus();
+} else {
+  auth.onAuthStateChanged(user => {
+    if (!user) {
+      window.location.replace("/");
+      return;
+    }
+    if (_authHandled) return; // Firebase بيعمل re-fire أحياناً — نتجاهله
+    _authHandled = true;
+    document.getElementById("nav-email").textContent = user.email;
+    fetchMetrics();
+    fetchBillingStatus();
+  });
+}
+ 
+// ── Fetch with timeout (10 seconds) ────────────────────────────────────────
+async function fetchWithTimeout(url, options = {}, ms = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Request timed out — server may be busy. Try again.');
+    throw e;
+  }
+}
+ 
+// ── KEY: builds the right auth header for every request — a fresh Firebase
+// token normally, or the saved dev password in dev mode. ───────────────────
+async function getAuthHeaders() {
+  if (isDevMode()) {
+    return { "X-Dev-Password": localStorage.getItem("devPassword") };
+  }
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated — please login first");
+  const token = await user.getIdToken(false); // false = use cached if still valid
+  return { Authorization: `Bearer ${token}` };
+}
+ 
+async function logout() {
+  localStorage.removeItem("devPassword");
+  if (!isDevMode()) await auth.signOut();
+  window.location.replace("/");
+}
+
+// ── Billing / Subscription ──────────────────────────────────────────────────
+async function fetchBillingStatus() {
+  const box = document.getElementById('st-billing');
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/billing/status`, { headers }, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+
+    if (d.plan === "dev-bypass") {
+      box.className = "status-box sb-idle";
+      box.innerHTML = `<span class="sb-icon">🔧</span><span>Developer mode — subscription checks are skipped for this account.</span>`;
+    } else if (d.status === "active") {
+      box.className = "status-box sb-idle";
+      const u = d.usage || {};
+      box.innerHTML = `<span class="sb-icon">✅</span><span>Plan: <strong>${d.plan}</strong> · Renews: <strong>${new Date(d.expires_at).toLocaleDateString()}</strong><br>
+        <small style="opacity:.7">Trainings used: ${u.trainings_used ?? '—'}/${u.trainings_limit ?? '—'} · Forecasts used: ${u.forecasts_used ?? '—'}/${u.forecasts_limit ?? '—'}</small></span>`;
+    } else {
+      box.className = "status-box sb-idle";
+      box.innerHTML = `<span class="sb-icon">⚠️</span><span>No active subscription — choose a plan below to unlock training and forecasting.</span>`;
+    }
+  } catch (e) {
+    box.className = "status-box sb-idle";
+    box.innerHTML = `<span class="sb-icon">❌</span><span>${e.message}</span>`;
+  }
+  renderPlans();
+}
+
+async function renderPlans() {
+  const grid = document.getElementById('plans-grid');
+  grid.innerHTML = '<div style="opacity:.6; font-size:12px;">Loading plans...</div>';
+  try {
+    // Plan listing is public — no auth headers needed.
+    const res = await fetchWithTimeout(`${API}/billing/plans`, {}, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+
+    grid.innerHTML = d.plans.map(p => `
+      <div style="border:1px solid rgba(124,58,255,.2); border-radius:12px; padding:14px; background:rgba(255,255,255,.02);">
+        <div style="font-size:12px; opacity:.7; text-transform:uppercase; letter-spacing:.06em;">${p.name}</div>
+        <div style="font-size:22px; font-weight:700; margin:6px 0;">$${p.price_usd}<span style="font-size:11px; opacity:.6;">/mo</span></div>
+        <div style="font-size:11px; opacity:.7; margin-bottom:10px;">Forecast up to ${p.max_forecast_months} months ahead</div>
+        <button class="btn-insights" style="width:100%; justify-content:center; margin:0;" onclick="subscribe('${p.id}')">Subscribe</button>
+      </div>
+    `).join('');
+
+    if (!d.paymob_configured) {
+      grid.innerHTML += `<div style="grid-column:1/-1; font-size:11px; opacity:.6; margin-top:6px;">
+        ⚠️ Payments aren't configured on the server yet (Paymob keys missing) — subscribing will show an error until that's set up.</div>`;
+    }
+  } catch (e) {
+    grid.innerHTML = `<div style="color:#f87171; font-size:12px;">${e.message}</div>`;
+  }
+}
+
+async function subscribe(planId) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/billing/subscribe`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan_id: planId }),
+    }, 15000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+
+    // Opens the Paymob checkout iframe in a new tab. After payment,
+    // Paymob's webhook activates the subscription automatically —
+    // come back and refresh this page to see it reflected.
+    window.open(d.iframe_url, '_blank');
+  } catch (e) {
+    alert("Couldn't start checkout: " + e.message);
+  }
+}
+
+ 
+// ── File handling ──────────────────────────────────────────────────────────
+const files = { train: null, forecast: null };
+ 
+function onFile(type) {
+  const el = document.getElementById(type === 'train' ? 'f-train' : 'f-fc');
+  if (!el.files[0]) return;
+  files[type] = el.files[0];
+  document.getElementById(type === 'train' ? 'fn-train' : 'fn-fc').textContent = el.files[0].name;
+  document.getElementById(type === 'train' ? 'btn-train' : 'btn-fc').disabled = false;
+}
+function onDrag(e,id){ e.preventDefault(); document.getElementById(id).classList.add('drag-over'); }
+function offDrag(id){ document.getElementById(id).classList.remove('drag-over'); }
+function onDrop(e,type){
+  e.preventDefault(); offDrag(type==='train'?'dz-train':'dz-fc');
+  const f = e.dataTransfer.files[0];
+  if (!f||!f.name.endsWith('.csv')) return;
+  files[type]=f;
+  document.getElementById(type==='train'?'fn-train':'fn-fc').textContent=f.name;
+  document.getElementById(type==='train'?'btn-train':'btn-fc').disabled=false;
+}
+ 
+// ── Helpers ────────────────────────────────────────────────────────────────
+function setStatus(id, type, icon, msg) {
+  const el = document.getElementById(id);
+  el.className = `status-box sb-${type}`;
+  el.innerHTML = `<span class="sb-icon">${icon}</span><span>${msg}</span>`;
+}
+function setProg(id, on) {
+  const el = document.getElementById(id);
+  el.className = on ? 'prog-bar run' : 'prog-bar';
+}
+function updateBar(d) {
+  document.getElementById('m-status').textContent = d.model_name || '—';
+  document.getElementById('m-val').textContent    = d.val_rmse   ?? '—';
+  document.getElementById('m-base').textContent   = d.baseline_rmse ?? '—';
+  const acc = d.val_rmse && d.baseline_rmse
+    ? ((1 - d.val_rmse / d.baseline_rmse)*100).toFixed(1)+'%' : '—';
+  document.getElementById('m-acc').textContent = acc;
+  if (d.model_name) {
+    const b = document.getElementById('m-badge');
+    b.textContent = 'Trained ✓'; b.className = 'metric-badge mb-good';
+  }
+}
+ 
+// ── Train ──────────────────────────────────────────────────────────────────
+async function doTrain() {
+  if (!files.train) return;
+  const btn = document.getElementById('btn-train');
+  btn.disabled = true;
+  setProg('pb-train', true);
+  setStatus('st-train','loading','<span class="spin"></span>','Uploading and queuing training job...');
+  document.getElementById('res-train').classList.remove('on');
+  try {
+    const headers = await getAuthHeaders();
+    const fd = new FormData(); fd.append('file', files.train);
+    const res = await fetch(`${API}/train`, { method:'POST', headers, body:fd });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+
+    // /train now queues a background job instead of training inline —
+    // poll GET /train/status/{job_id} until it's done or failed.
+    const jobId = d.job_id;
+    setStatus('st-train','loading','<span class="spin"></span>','Training queued — waiting for a worker...');
+    const result = await pollTrainingJob(jobId);
+
+    const m = result.metrics;
+    document.getElementById('r-model').textContent = m.model_name    || '—';
+    document.getElementById('r-trmse').textContent = m.train_rmse    ?? '—';
+    document.getElementById('r-vrmse').textContent = m.val_rmse      ?? '—';
+    document.getElementById('r-brmse').textContent = m.baseline_rmse ?? '—';
+    document.getElementById('r-lags').textContent  = m.best_lags     ?? '—';
+    document.getElementById('r-roll').textContent  = m.best_roll     ?? '—';
+    document.getElementById('res-train').classList.add('on');
+    setStatus('st-train','success','✅',`Model saved for <strong>${currentUserLabel()}</strong>`);
+    updateBar(m);
+  } catch(e) { setStatus('st-train','error','❌',e.message); }
+  setProg('pb-train',false); btn.disabled=false;
+}
+
+// Polls a training job's status every 3 seconds until it's done or failed.
+// Also updates the status line so the user can see it's still working
+// (grid search can take anywhere from seconds to several minutes).
+async function pollTrainingJob(jobId, intervalMs = 3000, maxWaitMs = 20 * 60 * 1000) {
+  const headers = await getAuthHeaders();
+  const startedAt = Date.now();
+  while (true) {
+    if (Date.now() - startedAt > maxWaitMs) {
+      throw new Error("Training is taking longer than expected — check back later, it may still finish.");
+    }
+    const res = await fetchWithTimeout(`${API}/train/status/${jobId}`, { headers }, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+
+    if (d.status === "done") return d;
+    if (d.status === "failed") throw new Error(d.error || "Training failed.");
+    if (d.status === "interrupted") throw new Error("Training was interrupted by a server restart — please try again.");
+
+    setStatus('st-train','loading','<span class="spin"></span>',
+      d.status === "running" ? "Training in progress..." : "Waiting in queue...");
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+}
+ 
+// ── Forecast ───────────────────────────────────────────────────────────────
+let lastCSV = '';
+let lastHistoricalCSV = '';
+let lastForecastMonths = 3;
+async function doForecast() {
+  if (!files.forecast) return;
+  const btn = document.getElementById('btn-fc');
+  btn.disabled=true; setProg('pb-fc',true);
+  setStatus('st-fc','loading','<span class="spin"></span>','Running forecast...');
+  document.getElementById('res-fc').classList.remove('on');
+  try {
+    const headers = await getAuthHeaders();
+    const months = document.querySelector('input[name="fc-months"]:checked').value;
+    lastForecastMonths = parseInt(months);
+    lastHistoricalCSV = await files.forecast.text(); // نص الملف الأصلي — هو نفسه "historicalCSV" اللي insights.html محتاجه
+    const fd = new FormData(); fd.append('file', files.forecast);
+    const res = await fetchWithTimeout(`${API}/forecast?months=${months}`, { method:'POST', headers, body:fd }, 60000); // 1 min timeout
+    if (!res.ok) { const e=await res.json(); throw new Error(e.detail||res.statusText); }
+    lastCSV = await res.text();
+    const rows = lastCSV.trim().split('\n').map(r=>r.split(','));
+    const thead = document.querySelector('#fc-table thead');
+    const tbody = document.querySelector('#fc-table tbody');
+    thead.innerHTML = '<tr>'+rows[0].map(h=>`<th>${h}</th>`).join('')+'</tr>';
+    tbody.innerHTML = rows.slice(1).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+    document.getElementById('res-fc').classList.add('on');
+    setStatus('st-fc','success','✅',`Forecast complete — ${months}-month predictions ready.`);
+  } catch(e) { setStatus('st-fc','error','❌',e.message); }
+  setProg('pb-fc',false); btn.disabled=false;
+}
+ 
+function downloadCSV() {
+  if (!lastCSV) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lastCSV],{type:'text/csv'}));
+  a.download = `forecast_${currentUserLabel().replace('@','_')}.csv`;
+  a.click();
+}
+ 
+// ── View Insights ─────────────────────────────────────────────────────────
+// NOTE: this button was wired up to open "insights.html", but that page
+// was never actually built anywhere in this project (no such file exists).
+// Rather than silently opening a blank/404 tab, we show a clear message
+// instead. Build a real insights.html page and swap this back to
+// window.open('/insights', '_blank') (add a matching route in main.py's
+// FRONTEND_PAGES, same pattern as the other pages) once it exists.
+function viewInsights() {
+  if (!lastCSV || !lastHistoricalCSV) return;
+  alert("Insights view isn't available yet — this page hasn't been built.");
+}
+ 
+// ── Metrics ────────────────────────────────────────────────────────────────
+async function fetchMetrics() {
+  setStatus('st-metrics','loading','<span class="spin"></span>','Loading metrics...');
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/metrics`,{headers}, 10000);
+ 
+    // 404 = مفيش موديل متدرب لحد دلوقتي — ده طبيعي مش error
+    if (res.status === 404) {
+      setStatus('st-metrics','idle','📡','No trained model yet. Upload a CSV and click Train Model.');
+      return;
+    }
+ 
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail||res.statusText);
+    updateBar(d);
+    setStatus('st-metrics','success','✅',`Model: <strong>${d.model_name}</strong> · Val RMSE: <strong>${d.val_rmse}</strong> · Lags: <strong>${d.best_lags}</strong><br><small style="opacity:.6">Trained by: ${d.owner_email || 'unknown'}</small>`);
+  } catch(e) {
+    // Network error أو السيرفر مش شغال
+    const msg = e.message && e.message.includes('fetch')
+      ? 'Cannot reach server — make sure the API is running on port 8000.'
+      : e.message;
+    setStatus('st-metrics','error','❌', msg);
+  }
+}
+ 
+// ── Delete ─────────────────────────────────────────────────────────────────
+async function doDelete() {
+  if (!confirm('Delete your saved model? You will need to retrain.')) return;
+  const st = document.getElementById('st-delete');
+  st.style.display='flex';
+  setStatus('st-delete','loading','<span class="spin"></span>','Deleting model...');
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/model`,{method:'DELETE',headers}, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail||res.statusText);
+    setStatus('st-delete','success','✅',d.message);
+    ['m-status','m-val','m-base','m-acc'].forEach(id=>document.getElementById(id).textContent='—');
+    const b=document.getElementById('m-badge'); b.textContent='No Model'; b.className='metric-badge mb-none';
+  } catch(e) { setStatus('st-delete','error','❌',e.message); }
+}
+ 
+// ── Neural SVG bg ──────────────────────────────────────────────────────────
+(function(){
+  const svg=document.getElementById('nsvg');
+  const N=Array.from({length:30},()=>({x:Math.random()*1400,y:Math.random()*800}));
+  let h='';
+  N.forEach((a,i)=>N.forEach((b,j)=>{
+    if(j<=i)return;
+    const d=Math.hypot(a.x-b.x,a.y-b.y);
+    if(d<200)h+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#7c3aff" stroke-width=".8" stroke-opacity="${(1-d/200)*.5}"/>`;
+  }));
+  N.forEach(n=>h+=`<circle cx="${n.x}" cy="${n.y}" r="2.5" fill="#7c3aff" fill-opacity=".5"/>`);
+  svg.innerHTML=h;
+})();
+</script>
+</body>
+</html>

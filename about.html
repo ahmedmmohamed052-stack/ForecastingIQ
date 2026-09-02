@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>About · Sales Forecasting AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #03040a;
+      --surface: #080c18;
+      --card: #0b0f1e;
+      --border: rgba(255,255,255,0.06);
+      --accent1: #7c3aff;
+      --accent2: #06b6d4;
+      --accent3: #f0abfc;
+      --accent4: #34d399;
+      --accent5: #fb923c;
+      --text: #f1f5f9;
+      --muted: #64748b;
+      --glow1: rgba(124,58,255,0.4);
+      --glow2: rgba(6,182,212,0.3);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── BACKGROUND ── */
+    .bg-canvas { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+    .orb {
+      position: absolute; border-radius: 50%;
+      filter: blur(80px); opacity: 0.25;
+      animation: drift 16s ease-in-out infinite alternate;
+    }
+    .orb-1 { width:600px;height:600px;background:radial-gradient(circle,#7c3aff,transparent 70%);top:-20%;left:-15%;animation-delay:0s; }
+    .orb-2 { width:500px;height:500px;background:radial-gradient(circle,#06b6d4,transparent 70%);bottom:-15%;right:-10%;animation-delay:-5s; }
+    .orb-3 { width:380px;height:380px;background:radial-gradient(circle,#f0abfc,transparent 70%);top:50%;left:60%;animation-delay:-9s; }
+    .orb-4 { width:300px;height:300px;background:radial-gradient(circle,#34d399,transparent 70%);bottom:30%;left:5%;animation-delay:-7s; }
+    @keyframes drift {
+      0%   { transform:translate(0,0) scale(1); }
+      50%  { transform:translate(30px,-25px) scale(1.06); }
+      100% { transform:translate(-15px,40px) scale(0.94); }
+    }
+
+    .scanlines {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px);
+    }
+    .grain {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat; background-size: 150px 150px;
+    }
+
+    /* ── DATA STREAM ── */
+    .data-stream {
+      position: fixed; right: 0; top: 0; bottom: 0;
+      width: 180px; z-index: 2; pointer-events: none; overflow: hidden;
+      mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+    }
+    .stream-col {
+      position: absolute; top: 0; bottom: 0;
+      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      color: var(--accent2); opacity: 0.2; white-space: nowrap;
+      animation: stream-fall linear infinite; line-height: 1.6;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    @keyframes stream-fall {
+      0%   { transform: translateY(-100%); }
+      100% { transform: translateY(100vh); }
+    }
+    .data-stream-left {
+      position: fixed; left: 0; top: 0; bottom: 0;
+      width: 140px; z-index: 2; pointer-events: none; overflow: hidden;
+      mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+    }
+    .stream-col-l {
+      position: absolute; top: 0; bottom: 0;
+      font-size: 9px; font-family: 'JetBrains Mono', monospace;
+      color: var(--accent1); opacity: 0.15; white-space: nowrap;
+      animation: stream-fall linear infinite; line-height: 1.8;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+
+    /* ── PARTICLES ── */
+    .particles { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+    .particle {
+      position: absolute; border-radius: 50%;
+      background: var(--accent1); animation: float-up linear infinite; opacity: 0;
+    }
+    @keyframes float-up {
+      0%   { transform: translateY(100vh); opacity: 0; }
+      10%  { opacity: 0.4; }
+      90%  { opacity: 0.15; }
+      100% { transform: translateY(-100px); opacity: 0; }
+    }
+
+    /* ── LAYOUT ── */
+    .page-wrap {
+      position: relative; z-index: 10;
+      max-width: 900px; margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    /* ── PAGE HEADER ── */
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 52px;
+      animation: fadeUp 0.7s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .logo-area { display: flex; align-items: center; gap: 14px; }
+    .logo-hex {
+      width: 48px; height: 48px; position: relative;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .logo-hex svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .logo-hex-inner { position: relative; z-index: 1; font-size: 20px; }
+    .title-block { display: flex; flex-direction: column; gap: 2px; }
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 34px; letter-spacing: 2px;
+      background: linear-gradient(90deg, var(--accent1) 0%, var(--accent2) 50%, var(--accent3) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      line-height: 1;
+    }
+    .subtitle {
+      font-size: 9px; color: var(--muted); letter-spacing: 0.2em; text-transform: uppercase;
+    }
+    .status-badge {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 12px;
+      background: rgba(52,211,153,0.08);
+      border: 1px solid rgba(52,211,153,0.2);
+      border-radius: 20px;
+      font-size: 9px; color: var(--accent4);
+      letter-spacing: 0.15em; text-transform: uppercase;
+    }
+    .status-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent4);
+      animation: pulse-dot 2s ease-in-out infinite;
+      box-shadow: 0 0 6px var(--accent4);
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.4; transform: scale(0.8); }
+    }
+    @keyframes fadeUp {
+      from { opacity:0; transform:translateY(30px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    /* ── HERO BANNER ── */
+    .hero-banner {
+      position: relative; overflow: hidden;
+      background: linear-gradient(160deg, rgba(124,58,255,0.08) 0%, rgba(6,182,212,0.05) 100%);
+      border: 1px solid rgba(124,58,255,0.2);
+      border-radius: 20px;
+      padding: 44px 40px;
+      margin-bottom: 40px;
+      animation: fadeUp 0.7s cubic-bezier(0.34,1.56,0.64,1) 0.05s both;
+    }
+    .hero-banner::before {
+      content: '';
+      position: absolute; top: -1px; left: -1px;
+      width: 28px; height: 28px;
+      border-top: 2px solid var(--accent1); border-left: 2px solid var(--accent1);
+      border-radius: 20px 0 0 0;
+    }
+    .hero-banner::after {
+      content: '';
+      position: absolute; top: -1px; right: -1px;
+      width: 28px; height: 28px;
+      border-top: 2px solid var(--accent2); border-right: 2px solid var(--accent2);
+      border-radius: 0 20px 0 0;
+    }
+    .hero-glow {
+      position: absolute; top: -60px; right: -60px;
+      width: 300px; height: 300px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(124,58,255,0.12), transparent 70%);
+      pointer-events: none;
+    }
+    .hero-tag {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 4px 12px;
+      background: rgba(124,58,255,0.12);
+      border: 1px solid rgba(124,58,255,0.3);
+      border-radius: 20px;
+      font-size: 9px; color: var(--accent1);
+      letter-spacing: 0.2em; text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+    .hero-tag::before {
+      content: '';
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent1);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .hero-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 52px; letter-spacing: 3px; line-height: 1.05;
+      margin-bottom: 16px;
+    }
+    .hero-title .ht-1 {
+      background: linear-gradient(90deg, var(--accent1), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .hero-title .ht-2 { color: var(--text); }
+    .hero-desc {
+      font-size: 13px; color: var(--muted); line-height: 1.8;
+      max-width: 600px; letter-spacing: 0.02em;
+    }
+    .hero-desc em { color: var(--accent4); font-style: normal; }
+
+    /* ── STAT PILLS ROW ── */
+    .stats-row {
+      display: grid; grid-template-columns: repeat(4,1fr); gap: 12px;
+      margin-bottom: 36px;
+      animation: fadeUp 0.7s cubic-bezier(0.34,1.56,0.64,1) 0.1s both;
+    }
+    @media (max-width:700px) { .stats-row { grid-template-columns: repeat(2,1fr); } }
+    .stat-pill {
+      background: linear-gradient(160deg, rgba(11,15,30,0.97) 0%, rgba(8,12,24,0.99) 100%);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px; padding: 18px 16px;
+      display: flex; flex-direction: column; gap: 6px;
+      transition: border-color 0.3s, transform 0.3s;
+      position: relative; overflow: hidden;
+    }
+    .stat-pill::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 30% 30%, rgba(124,58,255,0.06), transparent 60%);
+      pointer-events: none;
+    }
+    .stat-pill:hover {
+      border-color: rgba(124,58,255,0.3);
+      transform: translateY(-3px);
+    }
+    .stat-icon { font-size: 22px; margin-bottom: 4px; }
+    .stat-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px; letter-spacing: 1px; line-height: 1;
+      background: linear-gradient(90deg, var(--accent1), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .stat-lbl {
+      font-size: 8.5px; color: var(--muted);
+      letter-spacing: 0.15em; text-transform: uppercase;
+    }
+
+    /* ── SECTION ── */
+    .section {
+      margin-bottom: 24px;
+      background: linear-gradient(160deg, rgba(11,15,30,0.97) 0%, rgba(8,12,24,0.99) 100%);
+      border: 1px solid rgba(124,58,255,0.15);
+      border-radius: 16px; overflow: hidden;
+      position: relative;
+      animation: fadeUp 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .section:nth-child(1) { animation-delay: 0.15s; }
+    .section:nth-child(2) { animation-delay: 0.22s; }
+    .section:nth-child(3) { animation-delay: 0.29s; }
+    .section:nth-child(4) { animation-delay: 0.36s; }
+    .section:nth-child(5) { animation-delay: 0.43s; }
+    .section::before, .section::after {
+      content: ''; position: absolute; width: 20px; height: 20px; pointer-events: none;
+    }
+    .section::before { top: -1px; left: -1px; border-top: 2px solid var(--accent1); border-left: 2px solid var(--accent1); border-radius: 16px 0 0 0; }
+    .section::after  { top: -1px; right: -1px; border-top: 2px solid var(--accent2); border-right: 2px solid var(--accent2); border-radius: 0 16px 0 0; }
+
+    .section-head {
+      display: flex; align-items: center; gap: 14px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .section-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .ic-what   { background: rgba(124,58,255,0.12); border: 1px solid rgba(124,58,255,0.25); }
+    .ic-how    { background: rgba(6,182,212,0.12);  border: 1px solid rgba(6,182,212,0.25); }
+    .ic-why    { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.25); }
+    .ic-tech   { background: rgba(240,171,252,0.12);border: 1px solid rgba(240,171,252,0.25); }
+    .ic-limit  { background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.25); }
+    .ic-start  { background: rgba(124,58,255,0.12); border: 1px solid rgba(124,58,255,0.25); }
+    .ic-biz    { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.25); }
+
+    /* ── SCENARIO CARDS ── */
+    .scenario-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width:580px) { .scenario-grid { grid-template-columns: 1fr; } }
+    .scenario-card {
+      padding: 18px; background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05); border-radius: 12px;
+      transition: border-color 0.3s, transform 0.3s; position: relative; overflow: hidden;
+    }
+    .scenario-card::before { content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:12px 12px 0 0;opacity:0.7; }
+    .sc-green::before  { background: linear-gradient(90deg, var(--accent4), transparent); }
+    .sc-cyan::before   { background: linear-gradient(90deg, var(--accent2), transparent); }
+    .sc-purple::before { background: linear-gradient(90deg, var(--accent1), transparent); }
+    .sc-orange::before { background: linear-gradient(90deg, var(--accent5), transparent); }
+    .scenario-card:hover { border-color: rgba(52,211,153,0.2); transform: translateY(-2px); }
+    .sc-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 2px 8px; border-radius: 20px; font-size: 8px;
+      letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 10px;
+    }
+    .sc-tag-green  { background:rgba(52,211,153,0.1);  border:1px solid rgba(52,211,153,0.25);  color:var(--accent4); }
+    .sc-tag-cyan   { background:rgba(6,182,212,0.1);   border:1px solid rgba(6,182,212,0.25);   color:var(--accent2); }
+    .sc-tag-purple { background:rgba(124,58,255,0.1);  border:1px solid rgba(124,58,255,0.25);  color:var(--accent1); }
+    .sc-tag-orange { background:rgba(251,146,60,0.1);  border:1px solid rgba(251,146,60,0.25);  color:var(--accent5); }
+    .sc-title { font-size:12px; color:var(--text); font-weight:500; margin-bottom:6px; letter-spacing:0.04em; }
+    .sc-desc  { font-size:10.5px; color:var(--muted); line-height:1.7; }
+    .sc-result {
+      margin-top:10px; padding:8px 12px; border-radius:8px;
+      font-size:10px; display:flex; align-items:center; gap:6px;
+      background:rgba(52,211,153,0.06); border:1px solid rgba(52,211,153,0.15); color:var(--accent4);
+    }
+    .sc-result::before { content:'✓'; font-weight:700; }
+    .decision-row {
+      display:flex; align-items:center; gap:14px; padding:10px 14px; border-radius:10px;
+      background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); margin-bottom:6px; transition:border-color 0.2s;
+    }
+    .decision-row:hover { border-color:rgba(124,58,255,0.2); }
+    .decision-row:last-child { margin-bottom:0; }
+    .dr-icon { font-size:20px; flex-shrink:0; }
+    .dr-body { flex:1; }
+    .dr-title { font-size:11px; color:var(--text); margin-bottom:3px; letter-spacing:0.04em; }
+    .dr-desc  { font-size:10px; color:var(--muted); line-height:1.6; }
+    .dr-impact {
+      padding:3px 10px; border-radius:20px; font-size:8.5px; letter-spacing:0.1em;
+      text-transform:uppercase; flex-shrink:0;
+      background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25); color:var(--accent4);
+    }
+
+    .section-title-block { display: flex; flex-direction: column; gap: 4px; }
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 1.5px;
+      background: linear-gradient(90deg, var(--text), rgba(241,245,249,0.7));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .section-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 2px 8px; border-radius: 20px;
+      font-size: 8px; letter-spacing: 0.15em; text-transform: uppercase;
+      width: fit-content;
+    }
+    .badge-purple { background: rgba(124,58,255,0.12); border: 1px solid rgba(124,58,255,0.3); color: var(--accent1); }
+    .badge-cyan   { background: rgba(6,182,212,0.12);  border: 1px solid rgba(6,182,212,0.3);  color: var(--accent2); }
+    .badge-green  { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.3); color: var(--accent4); }
+    .badge-pink   { background: rgba(240,171,252,0.12);border: 1px solid rgba(240,171,252,0.3);color: var(--accent3); }
+    .badge-orange { background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.3);  color: var(--accent5); }
+
+    .section-body { padding: 22px 24px 26px; display: flex; flex-direction: column; gap: 16px; }
+
+    /* ── FEATURE GRID ── */
+    .feature-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    @media (max-width:580px) { .feature-grid { grid-template-columns: 1fr; } }
+    .feature-card {
+      padding: 16px 18px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 12px;
+      transition: border-color 0.3s, background 0.3s;
+      display: flex; gap: 14px; align-items: flex-start;
+    }
+    .feature-card:hover {
+      border-color: rgba(124,58,255,0.2);
+      background: rgba(124,58,255,0.04);
+    }
+    .fc-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+    .fc-body { flex: 1; }
+    .fc-title {
+      font-size: 11px; color: var(--text);
+      letter-spacing: 0.06em; margin-bottom: 5px; font-weight: 500;
+    }
+    .fc-desc {
+      font-size: 10.5px; color: var(--muted); line-height: 1.7;
+    }
+
+    /* ── FLOW ROW ── */
+    .flow-bar {
+      display: flex; align-items: center; gap: 0;
+      background: rgba(8,12,24,0.8);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px; padding: 16px 20px;
+    }
+    .flow-step {
+      display: flex; align-items: center; gap: 10px; flex: 1;
+    }
+    .flow-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Bebas Neue', sans-serif; font-size: 14px;
+      flex-shrink: 0;
+    }
+    .flow-num.n1 { background: rgba(124,58,255,0.2); border: 1px solid rgba(124,58,255,0.5); color: var(--accent1); }
+    .flow-num.n2 { background: rgba(6,182,212,0.2);  border: 1px solid rgba(6,182,212,0.5);  color: var(--accent2); }
+    .flow-num.n3 { background: rgba(52,211,153,0.2); border: 1px solid rgba(52,211,153,0.5); color: var(--accent4); }
+    .flow-num.n4 { background: rgba(240,171,252,0.2);border: 1px solid rgba(240,171,252,0.5);color: var(--accent3); }
+    .flow-num.n5 { background: rgba(251,146,60,0.2); border: 1px solid rgba(251,146,60,0.5);  color: var(--accent5); }
+    .flow-label { font-size: 10px; color: var(--text); letter-spacing: 0.05em; }
+    .flow-label span { display: block; font-size: 8px; color: var(--muted); letter-spacing: 0.1em; margin-top: 2px; }
+    .flow-arrow { font-size: 14px; color: rgba(124,58,255,0.4); margin: 0 6px; flex-shrink: 0; }
+
+    /* ── INFO PILLS ── */
+    .info-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .info-pill {
+      display: flex; align-items: flex-start; gap: 10px;
+      flex: 1; min-width: 200px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px;
+      transition: border-color 0.3s;
+    }
+    .info-pill:hover { border-color: rgba(124,58,255,0.2); }
+    .info-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+    .info-text { font-size: 11px; color: var(--muted); line-height: 1.65; }
+    .info-text strong { color: var(--text); display: block; margin-bottom: 4px; font-size: 11px; }
+
+    /* ── TECH STACK GRID ── */
+    .tech-grid {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+    }
+    @media (max-width:580px) { .tech-grid { grid-template-columns: repeat(2,1fr); } }
+    .tech-card {
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px; text-align: center;
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .tech-card:hover {
+      border-color: rgba(6,182,212,0.3);
+      transform: translateY(-2px);
+    }
+    .tech-emoji { font-size: 26px; margin-bottom: 8px; display: block; }
+    .tech-name {
+      font-size: 10px; color: var(--accent2);
+      letter-spacing: 0.08em; margin-bottom: 4px;
+    }
+    .tech-role { font-size: 9px; color: var(--muted); letter-spacing: 0.05em; }
+
+    /* ── WARN BLOCK ── */
+    .warn-block {
+      background: rgba(251,146,60,0.06);
+      border: 1px solid rgba(251,146,60,0.2);
+      border-radius: 10px; padding: 14px 16px;
+      display: flex; gap: 12px; align-items: flex-start;
+    }
+    .warn-icon { font-size: 18px; flex-shrink: 0; }
+    .warn-text { font-size: 11px; color: rgba(251,146,60,0.85); line-height: 1.65; }
+    .warn-text strong { color: var(--accent5); display: block; margin-bottom: 4px; }
+
+    /* ── NOTE BLOCK ── */
+    .note-block {
+      background: rgba(6,182,212,0.06);
+      border: 1px solid rgba(6,182,212,0.2);
+      border-radius: 10px; padding: 14px 16px;
+      display: flex; gap: 12px; align-items: flex-start;
+    }
+    .note-icon { font-size: 18px; flex-shrink: 0; }
+    .note-text { font-size: 11px; color: rgba(6,182,212,0.85); line-height: 1.65; }
+    .note-text strong { color: var(--accent2); display: block; margin-bottom: 4px; }
+
+    /* ── DIVIDER ── */
+    .divider-row { display: flex; align-items: center; gap: 12px; margin: 4px 0; }
+    .divider-line { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(124,58,255,0.25), transparent); }
+    .divider-label { font-size: 9px; color: rgba(100,116,139,0.5); letter-spacing: 0.2em; text-transform: uppercase; }
+
+    /* ── CTA BUTTON ── */
+    .cta-wrap { display: flex; justify-content: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+    .btn-cta {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 32px;
+      border: none; border-radius: 12px; cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 500;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      position: relative; overflow: hidden;
+      transition: transform 0.22s, box-shadow 0.22s;
+      text-decoration: none;
+    }
+    .btn-primary-cta {
+      background: linear-gradient(135deg, var(--accent1) 0%, #5b21b6 50%, var(--accent2) 100%);
+      background-size: 200% 200%;
+      color: #fff;
+      box-shadow: 0 6px 28px rgba(124,58,255,0.4);
+      animation: grad-shift 5s ease infinite;
+    }
+    .btn-primary-cta::before {
+      content: '';
+      position: absolute; top: 0; left: -100%; width: 60%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+      transform: skewX(-20deg);
+      animation: btn-shimmer 3s ease-in-out infinite;
+    }
+    @keyframes btn-shimmer { 0%,100% { left:-100%; } 50% { left:150%; } }
+    .btn-primary-cta:hover { transform: translateY(-3px); box-shadow: 0 12px 40px rgba(124,58,255,0.6); }
+
+    .btn-secondary-cta {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: var(--muted);
+    }
+    .btn-secondary-cta:hover {
+      transform: translateY(-2px);
+      border-color: rgba(124,58,255,0.3);
+      color: var(--text);
+    }
+
+    @keyframes grad-shift {
+      0%,100% { background-position: 0% 50%; }
+      50%      { background-position: 100% 50%; }
+    }
+
+    /* ── FOOTER ── */
+    .page-footer {
+      margin-top: 48px; text-align: center; font-size: 9px;
+      color: rgba(100,116,139,0.3); letter-spacing: 0.18em; text-transform: uppercase;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    .footer-dot { width: 3px; height: 3px; border-radius: 50%; background: rgba(124,58,255,0.4); }
+
+    /* ── BETA RIBBON ── */
+    .beta-ribbon {
+      position: fixed; top: 20px; right: 20px; z-index: 100;
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
+      background: rgba(251,146,60,0.1);
+      border: 1px solid rgba(251,146,60,0.3);
+      border-radius: 20px;
+      font-size: 9px; color: var(--accent5);
+      letter-spacing: 0.2em; text-transform: uppercase;
+      animation: fadeUp 0.6s both 0.3s;
+    }
+    .beta-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent5);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    /* progress bar for roadmap */
+    .roadmap-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .roadmap-item:last-child { border-bottom: none; }
+    .rm-status {
+      width: 20px; height: 20px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; flex-shrink: 0;
+    }
+    .rm-done    { background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.4); }
+    .rm-inprog  { background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.4); }
+    .rm-planned { background: rgba(100,116,139,0.1); border: 1px solid rgba(100,116,139,0.2); }
+    .rm-text { flex: 1; font-size: 11px; }
+    .rm-name { color: var(--text); letter-spacing: 0.04em; margin-bottom: 2px; }
+    .rm-sub  { font-size: 9.5px; color: var(--muted); }
+    .rm-badge {
+      font-size: 8px; padding: 2px 8px; border-radius: 20px;
+      letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .rmb-done    { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.3); color: var(--accent4); }
+    .rmb-inprog  { background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.3);  color: var(--accent5); }
+    .rmb-planned { background: rgba(100,116,139,0.1); border: 1px solid rgba(100,116,139,0.2); color: var(--muted); }
+
+  </style>
+</head>
+<body>
+
+<!-- ── Background ── -->
+<div class="bg-canvas">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="orb orb-4"></div>
+  <svg id="neural-svg" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.12;" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice"></svg>
+</div>
+<div class="scanlines"></div>
+<div class="grain"></div>
+<div class="particles" id="particles"></div>
+<div class="data-stream" id="data-stream-right"></div>
+<div class="data-stream-left" id="data-stream-left"></div>
+
+<!-- Beta ribbon -->
+<div class="beta-ribbon">
+  <div class="beta-dot"></div>
+  Beta · Work in Progress
+</div>
+
+<!-- ════════════════ PAGE ════════════════ -->
+<div class="page-wrap">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="logo-area">
+      <div class="logo-hex">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="24,2 44,13 44,35 24,46 4,35 4,13" fill="none" stroke="url(#hexGrad)" stroke-width="1.5"/>
+          <polygon points="24,9 38,17 38,31 24,39 10,31 10,17" fill="rgba(124,58,255,0.1)" stroke="rgba(124,58,255,0.3)" stroke-width="1"/>
+          <defs>
+            <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#7c3aff"/>
+              <stop offset="100%" stop-color="#06b6d4"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <div class="logo-hex-inner">📈</div>
+      </div>
+      <div class="title-block">
+        <h1>About This Platform</h1>
+        <div class="subtitle">Sales Forecasting AI · SaaS Overview</div>
+      </div>
+    </div>
+    <div class="status-badge">
+      <div class="status-dot"></div>
+      API Online
+    </div>
+  </div>
+
+  <!-- HERO BANNER -->
+  <div class="hero-banner">
+    <div class="hero-glow"></div>
+    <div class="hero-tag">SaaS · AI-Powered</div>
+    <div class="hero-title">
+      <span class="ht-1">Sales Forecasting</span><br>
+      <span class="ht-2">As a Service</span>
+    </div>
+    <div class="hero-desc">
+      A cloud-ready API that lets any business upload their historical sales data,
+      train a personalized <em>XGBoost</em> machine-learning model, and instantly generate
+      <em>2-month ahead forecasts</em> — all without writing a single line of code.
+      Every user gets their own isolated model. No data is ever shared.
+    </div>
+  </div>
+
+  <!-- STATS ROW -->
+  <div class="stats-row">
+    <div class="stat-pill">
+      <div class="stat-icon">🤖</div>
+      <div class="stat-num" style="font-size:20px;">XGBoost + Ridge</div>
+      <div class="stat-lbl">Core ML Engines</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-icon">📅</div>
+      <div class="stat-num">2 Months</div>
+      <div class="stat-lbl">Forecast Horizon</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-icon">🔐</div>
+      <div class="stat-num">JWT</div>
+      <div class="stat-lbl">Auth & Isolation</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-icon">⚡</div>
+      <div class="stat-num">FastAPI</div>
+      <div class="stat-lbl">Backend Engine</div>
+    </div>
+  </div>
+
+  <!-- SECTIONS WRAP -->
+  <div id="sections-wrap">
+
+  <!-- 1. WHAT IS THIS? -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-what">🧠</div>
+      <div class="section-title-block">
+        <div class="section-title">What Is This Platform?</div>
+        <div class="section-badge badge-purple">Core Concept</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div style="font-size:11.5px;color:var(--muted);line-height:1.8;">
+        This is a <span style="color:var(--accent2)">Software-as-a-Service (SaaS)</span> platform built around
+        a machine-learning API for retail and e-commerce businesses.
+        Instead of hiring a data scientist or building your own pipeline, you simply
+        upload a CSV of your monthly sales history and the platform does the rest —
+        training, optimizing, and storing a dedicated model just for you.
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="fc-icon">🎯</div>
+          <div class="fc-body">
+            <div class="fc-title">Per-User Model Isolation</div>
+            <div class="fc-desc">Each account trains and owns its own model. Your data never touches another user's model.</div>
+          </div>
+        </div>
+        <div class="feature-card">
+          <div class="fc-icon">📊</div>
+          <div class="fc-body">
+            <div class="fc-title">Multi-Product Forecasting</div>
+            <div class="fc-desc">Upload data for hundreds of products at once — the model learns each product's unique sales pattern.</div>
+          </div>
+        </div>
+        <div class="feature-card">
+          <div class="fc-icon">🔄</div>
+          <div class="fc-body">
+            <div class="fc-title">Train Once, Forecast Many</div>
+            <div class="fc-desc">Train the model once with your historical data, then call <span style="color:var(--accent4)">/forecast</span> as many times as you need — instantly.</div>
+          </div>
+        </div>
+        <div class="feature-card">
+          <div class="fc-icon">💾</div>
+          <div class="fc-body">
+            <div class="fc-title">Persistent Model Storage</div>
+            <div class="fc-desc">Your trained model is saved on the server and survives restarts — no need to retrain unless you want to.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. HOW IT WORKS -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-how">⚙️</div>
+      <div class="section-title-block">
+        <div class="section-title">How It Works</div>
+        <div class="section-badge badge-cyan">Workflow</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div style="font-size:11px;color:var(--muted);line-height:1.7;">
+        The platform follows a simple 5-step journey from sign-up to getting your forecasts:
+      </div>
+      <div class="flow-bar">
+        <div class="flow-step">
+          <div class="flow-num n1">1</div>
+          <div class="flow-label">Sign Up<span>Create account</span></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-num n2">2</div>
+          <div class="flow-label">Login<span>Get JWT token</span></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-num n3">3</div>
+          <div class="flow-label">POST /train<span>Upload CSV once</span></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-num n4">4</div>
+          <div class="flow-label">POST /forecast<span>Get predictions</span></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-num n5">5</div>
+          <div class="flow-label">Download CSV<span>2-month forecast</span></div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-pill">
+          <div class="info-icon">📤</div>
+          <div class="info-text"><strong>Input</strong>A structured CSV with monthly product sales, cart adds, and conversion data.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">📥</div>
+          <div class="info-text"><strong>Output</strong>A CSV containing 2-month predicted sales for each product in your catalogue.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. WHY USE IT -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-why">🚀</div>
+      <div class="section-title-block">
+        <div class="section-title">Why Use This Platform?</div>
+        <div class="section-badge badge-green">Value Proposition</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="info-row">
+        <div class="info-pill">
+          <div class="info-icon">🏪</div>
+          <div class="info-text"><strong>No ML Knowledge Needed</strong>Zero code, zero math. Upload your data and get predictions through a simple web UI or REST API.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">🔍</div>
+          <div class="info-text"><strong>Intelligent Auto-Tuning</strong>The engine automatically searches for the best lag periods and rolling windows to maximize forecast accuracy.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">⚡</div>
+          <div class="info-text"><strong>Instant Results</strong>Forecasting is near-instant since the model is already trained and cached on the server for your account.</div>
+        </div>
+        <div class="info-pill">
+          <div class="info-icon">📉</div>
+          <div class="info-text"><strong>Validated Accuracy</strong>Every model is evaluated against a naive baseline — you see exactly how much better ML is performing.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- 3b. BUSINESS IMPACT -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-biz">💼</div>
+      <div class="section-title-block">
+        <div class="section-title">How It Helps Your Business</div>
+        <div class="section-badge badge-green">Business Impact</div>
+      </div>
+    </div>
+    <div class="section-body">
+
+      <div style="font-size:11.5px;color:var(--muted);line-height:1.8;">
+        Whether you run a small shop or a growing e-commerce store, accurate sales forecasts
+        directly translate into <span style="color:var(--accent4)">smarter decisions</span>,
+        <span style="color:var(--accent2)">lower costs</span>, and
+        <span style="color:var(--accent3)">higher revenue</span>.
+        Here is how this platform creates real, measurable value for business owners.
+      </div>
+
+      <div class="divider-row"><div class="divider-line"></div><div class="divider-label">Decision Areas</div><div class="divider-line"></div></div>
+
+      <div>
+        <div class="decision-row">
+          <div class="dr-icon">📦</div>
+          <div class="dr-body">
+            <div class="dr-title">Inventory & Stock Management</div>
+            <div class="dr-desc">Know exactly how much stock to order next month — stop over-buying products that sit on shelves and stop under-buying products that sell out and lose you customers.</div>
+          </div>
+          <div class="dr-impact">↓ Waste</div>
+        </div>
+        <div class="decision-row">
+          <div class="dr-icon">💰</div>
+          <div class="dr-body">
+            <div class="dr-title">Pricing & Promotions</div>
+            <div class="dr-desc">If the forecast shows a product slowing down next month, launch a promotion before demand drops. If it shows growth, hold firm on price and maximize margin.</div>
+          </div>
+          <div class="dr-impact">↑ Revenue</div>
+        </div>
+        <div class="decision-row">
+          <div class="dr-icon">👷</div>
+          <div class="dr-body">
+            <div class="dr-title">Workforce & Shift Planning</div>
+            <div class="dr-desc">Busy months need more staff. Quiet months need less. Forecast your sales volume ahead of time to schedule your team efficiently and reduce overtime costs.</div>
+          </div>
+          <div class="dr-impact">↓ Cost</div>
+        </div>
+        <div class="decision-row">
+          <div class="dr-icon">🏦</div>
+          <div class="dr-body">
+            <div class="dr-title">Cash Flow & Budget Planning</div>
+            <div class="dr-desc">Predicted revenue for the next two months gives you a concrete basis for planning purchases, paying suppliers, and managing your business cash flow with confidence.</div>
+          </div>
+          <div class="dr-impact">↑ Stability</div>
+        </div>
+        <div class="decision-row">
+          <div class="dr-icon">🎯</div>
+          <div class="dr-body">
+            <div class="dr-title">Marketing Budget Allocation</div>
+            <div class="dr-desc">Spend your ads budget on the products that the model predicts will have the highest sales velocity — not based on gut feeling, but on data-driven predictions.</div>
+          </div>
+          <div class="dr-impact">↑ ROI</div>
+        </div>
+      </div>
+
+      <div class="divider-row"><div class="divider-line"></div><div class="divider-label">Real-World Scenarios</div><div class="divider-line"></div></div>
+
+      <div class="scenario-grid">
+        <div class="scenario-card sc-green">
+          <div class="sc-tag sc-tag-green">🏪 Retail Shop</div>
+          <div class="sc-title">Seasonal Product Planning</div>
+          <div class="sc-desc">A clothing store uploads 12 months of sales data. The model predicts which items will spike in the coming months, allowing the owner to reorder stock 4 weeks ahead of demand.</div>
+          <div class="sc-result">Avoided stockouts on 3 best-selling items</div>
+        </div>
+        <div class="scenario-card sc-cyan">
+          <div class="sc-tag sc-tag-cyan">🛒 E-Commerce</div>
+          <div class="sc-title">Cart Abandonment Insights</div>
+          <div class="sc-desc">An online store sees the model picking up on high cart-add but low purchase rates for certain products — a signal to run a targeted discount campaign before the next month.</div>
+          <div class="sc-result">Conversion rate improved with timely promotions</div>
+        </div>
+        <div class="scenario-card sc-purple">
+          <div class="sc-tag sc-tag-purple">🍕 Food & Beverage</div>
+          <div class="sc-title">Ingredient Ordering</div>
+          <div class="sc-desc">A restaurant chain forecasts meals sold per branch next month, reducing food waste by ordering ingredients in proportion to predicted demand rather than fixed weekly orders.</div>
+          <div class="sc-result">Food waste reduced, supplier orders optimized</div>
+        </div>
+        <div class="scenario-card sc-orange">
+          <div class="sc-tag sc-tag-orange">🏗️ Wholesale</div>
+          <div class="sc-title">Supplier Negotiations</div>
+          <div class="sc-desc">A wholesaler uses 2-month forecasts to negotiate bulk purchase agreements with suppliers in advance, locking in better prices before predicted demand peaks.</div>
+          <div class="sc-result">Better supplier terms secured ahead of peak season</div>
+        </div>
+      </div>
+
+      <div class="note-block">
+        <div class="note-icon">💡</div>
+        <div class="note-text">
+          <strong>The Bottom Line</strong>
+          Every business decision made without data carries risk. This platform replaces guesswork with
+          statistically validated predictions — giving business owners the same forecasting power that
+          was previously only available to large enterprises with dedicated data science teams.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 4. TECH STACK -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-tech">🛠️</div>
+      <div class="section-title-block">
+        <div class="section-title">Technology Stack</div>
+        <div class="section-badge badge-pink">Under the Hood</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="tech-grid">
+        <div class="tech-card">
+          <span class="tech-emoji">⚡</span>
+          <div class="tech-name">FastAPI</div>
+          <div class="tech-role">REST API Backend</div>
+        </div>
+        <div class="tech-card">
+          <span class="tech-emoji">🤖</span>
+          <div class="tech-name">XGBoost</div>
+          <div class="tech-role">Tree-Based Forecasting</div>
+        </div>
+        <div class="tech-card">
+          <span class="tech-emoji">📐</span>
+          <div class="tech-name">Ridge Regression</div>
+          <div class="tech-role">Linear Forecasting</div>
+        </div>
+        <div class="tech-card">
+          <span class="tech-emoji">🐼</span>
+          <div class="tech-name">Pandas</div>
+          <div class="tech-role">Data Processing</div>
+        </div>
+        <div class="tech-card">
+          <span class="tech-emoji">🔐</span>
+          <div class="tech-name">Firebase Auth</div>
+          <div class="tech-role">User Authentication</div>
+        </div>
+        <div class="tech-card">
+          <span class="tech-emoji">🎫</span>
+          <div class="tech-name">JWT Tokens</div>
+          <div class="tech-role">API Authorization</div>
+        </div>
+        <div class="tech-card">
+          <span class="tech-emoji">📦</span>
+          <div class="tech-name">Joblib / Pickle</div>
+          <div class="tech-role">Model Persistence</div>
+        </div>
+      </div>
+      <div class="note-block">
+        <div class="note-icon">🧪</div>
+        <div class="note-text">
+          <strong>How the ML Works</strong>
+          The platform trains two models simultaneously — <span style="color:var(--accent2);font-weight:500;">XGBoost</span> (gradient-boosted trees) and
+          <span style="color:var(--accent2);font-weight:500;">Ridge Regression</span> (regularized linear model) — using engineered lag features
+          (past N months of sales) and rolling averages. Both are evaluated by RMSE on a held-out
+          validation set, and the best-performing model is automatically selected and saved for your account.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. CURRENT LIMITATIONS / ROADMAP -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-icon ic-limit">🗺️</div>
+      <div class="section-title-block">
+        <div class="section-title">Current Status &amp; Roadmap</div>
+        <div class="section-badge badge-orange">Work in Progress</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="warn-block">
+        <div class="warn-icon">⚠️</div>
+        <div class="warn-text">
+          <strong>This is an incomplete SaaS</strong>
+          The platform is currently in active development. Core forecasting features are fully functional,
+          but subscription management, billing, and production-scale infrastructure are not yet implemented.
+        </div>
+      </div>
+
+      <div class="divider-row"><div class="divider-line"></div><div class="divider-label">Feature Roadmap</div><div class="divider-line"></div></div>
+
+      <div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-done">✓</div>
+          <div class="rm-text">
+            <div class="rm-name">User Authentication &amp; Registration</div>
+            <div class="rm-sub">Firebase Auth · JWT · Per-user data isolation</div>
+          </div>
+          <div class="rm-badge rmb-done">Done</div>
+        </div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-done">✓</div>
+          <div class="rm-text">
+            <div class="rm-name">Train &amp; Forecast API</div>
+            <div class="rm-sub">POST /train · POST /forecast · GET /metrics · DELETE /model</div>
+          </div>
+          <div class="rm-badge rmb-done">Done</div>
+        </div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-done">✓</div>
+          <div class="rm-text">
+            <div class="rm-name">Interactive Dashboard</div>
+            <div class="rm-sub">Visual charts, model metrics, forecast history</div>
+          </div>
+          <div class="rm-badge rmb-done">Done</div>
+        </div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-inprog">⟳</div>
+          <div class="rm-text">
+            <div class="rm-name">Multi-Model Support</div>
+            <div class="rm-sub">Allow users to maintain multiple trained models per account</div>
+          </div>
+          <div class="rm-badge rmb-inprog">In Progress</div>
+        </div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-planned">○</div>
+          <div class="rm-text">
+            <div class="rm-name">Subscription &amp; Billing</div>
+            <div class="rm-sub">Tiered plans · Usage limits · Payment gateway integration</div>
+          </div>
+          <div class="rm-badge rmb-planned">Planned</div>
+        </div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-planned">○</div>
+          <div class="rm-text">
+            <div class="rm-name">Production Deployment</div>
+            <div class="rm-sub">Cloud hosting · Auto-scaling · CI/CD pipeline</div>
+          </div>
+          <div class="rm-badge rmb-planned">Planned</div>
+        </div>
+        <div class="roadmap-item">
+          <div class="rm-status rm-planned">○</div>
+          <div class="rm-text">
+            <div class="rm-name">Extended Forecast Horizon</div>
+            <div class="rm-sub">3, 6, and 12 month forecasts with confidence intervals</div>
+          </div>
+          <div class="rm-badge rmb-planned">Planned</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- end sections-wrap -->
+
+  <!-- CTA -->
+  <div class="cta-wrap">
+    <a href="/guide" class="btn-cta btn-primary-cta">
+      <span style="font-size:15px;">📖</span>
+      Read User Guide
+      <span style="font-size:13px;opacity:0.8;">→</span>
+    </a>
+    <a href="/app" class="btn-cta btn-secondary-cta">
+      <span style="font-size:15px;">🔐</span>
+      Go to Login
+    </a>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="page-footer">
+    <span>Sales Forecasting AI</span>
+    <div class="footer-dot"></div>
+    <span>v5.0.0</span>
+    <div class="footer-dot"></div>
+    <span>SaaS Overview</span>
+  </div>
+
+</div><!-- end page-wrap -->
+
+<script>
+  /* ── Neural Network SVG ── */
+  (function(){
+    const svg = document.getElementById('neural-svg');
+    if (!svg) return;
+    const ns = 'http://www.w3.org/2000/svg';
+    const W = 1200, H = 700;
+    const nodes = [];
+    const count = 60;
+    for (let i = 0; i < count; i++) {
+      nodes.push({ x: Math.random()*W, y: Math.random()*H });
+    }
+    nodes.forEach(n => nodes.forEach(m => {
+      const dx = n.x-m.x, dy = n.y-m.y;
+      if (Math.sqrt(dx*dx+dy*dy) < 160 && n !== m) {
+        const l = document.createElementNS(ns,'line');
+        l.setAttribute('x1',n.x); l.setAttribute('y1',n.y);
+        l.setAttribute('x2',m.x); l.setAttribute('y2',m.y);
+        l.setAttribute('stroke','rgba(124,58,255,0.3)'); l.setAttribute('stroke-width','0.5');
+        svg.appendChild(l);
+      }
+    }));
+    nodes.forEach(n => {
+      const c = document.createElementNS(ns,'circle');
+      c.setAttribute('cx',n.x); c.setAttribute('cy',n.y); c.setAttribute('r','2.5');
+      c.setAttribute('fill','rgba(124,58,255,0.6)');
+      svg.appendChild(c);
+    });
+  })();
+
+  /* ── Data Streams ── */
+  (function(){
+    const pairs = [
+      { el:'data-stream-right', cls:'stream-col',   count:5, dur:[12,18], off:[0,15,30,8,22] },
+      { el:'data-stream-left',  cls:'stream-col-l', count:4, dur:[14,20], off:[5,18,10,25] }
+    ];
+    const words = ['0.9234','1.4970','XGBoost','P001','P002','train','RMSE','val','lag=3','roll=3',
+                   'predict','+12.4%','-3.1%','CSV','token','JWT','model','forecast','2025-01','accuracy'];
+    pairs.forEach(p => {
+      const container = document.getElementById(p.el);
+      if (!container) return;
+      for (let i = 0; i < p.count; i++) {
+        const col = document.createElement('div');
+        col.className = p.cls;
+        col.style.left = (i * 20 + 5) + '%';
+        col.style.animationDuration = (p.dur[0] + Math.random()*(p.dur[1]-p.dur[0])) + 's';
+        col.style.animationDelay = '-' + p.off[i] + 's';
+        for (let j = 0; j < 40; j++) col.appendChild(Object.assign(document.createElement('span'),{ textContent: words[Math.floor(Math.random()*words.length)] }));
+        container.appendChild(col);
+      }
+    });
+  })();
+
+  /* ── Particles ── */
+  (function(){
+    const container = document.getElementById('particles');
+    if (!container) return;
+    const colors = ['#7c3aff','#06b6d4','#f0abfc','#34d399'];
+    for (let i = 0; i < 22; i++) {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      const size = 1.5 + Math.random()*2.5;
+      p.style.cssText = `
+        width:${size}px; height:${size}px;
+        left:${Math.random()*100}%;
+        animation-duration:${8+Math.random()*14}s;
+        animation-delay:-${Math.random()*15}s;
+        background:${colors[Math.floor(Math.random()*colors.length)]};
+        opacity:0;
+      `;
+      container.appendChild(p);
+    }
+  })();
+</script>
+
+</body>
+</html>
