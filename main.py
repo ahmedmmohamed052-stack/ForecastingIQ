@@ -56,12 +56,24 @@ from jobs import TrainingJobQueue, JobStatus
 # your service-account JSON file. Get it from:
 # Firebase Console → Project Settings → Service Accounts → Generate new private key.
 # NEVER commit this file — it's already in .gitignore.
+#
+# Some hosts (Render) let you upload this as a real "secret file" directly.
+# Others (Railway and most others) only offer plain environment variables —
+# for those, base64-encode the JSON file's contents into one env var,
+# FIREBASE_KEY_B64, and this block decodes it into a real file on startup
+# before anything else runs. If FIREBASE_CRED_PATH already exists as an
+# actual file (Render's case, or running locally), this is skipped entirely.
+if not os.path.exists(settings.FIREBASE_CRED_PATH) and os.getenv("FIREBASE_KEY_B64"):
+    with open(settings.FIREBASE_CRED_PATH, "wb") as f:
+        f.write(base64.b64decode(os.environ["FIREBASE_KEY_B64"]))
+
 if not os.path.exists(settings.FIREBASE_CRED_PATH):
     raise FileNotFoundError(
         f"Firebase service-account file not found at "
-        f"'{settings.FIREBASE_CRED_PATH}'. Download it from your Firebase "
-        f"Console (Project Settings → Service Accounts) and place it there, "
-        f"or point FIREBASE_CRED_PATH in your .env to its location."
+        f"'{settings.FIREBASE_CRED_PATH}'. Either place the real file there "
+        f"(or point FIREBASE_CRED_PATH in your .env to its location), or — "
+        f"on hosts without file upload (e.g. Railway) — set FIREBASE_KEY_B64 "
+        f"to the base64-encoded contents of the file instead."
     )
 
 cred = credentials.Certificate(settings.FIREBASE_CRED_PATH)
