@@ -953,11 +953,6 @@ def list_plans():
         "plans": [
             {"id": plan_id, **plan}
             for plan_id, plan in PLANS.items()
-            # test_plan is a $0.50 plan for exercising the Paymob checkout
-            # flow without paying full price — hide it from real customers
-            # by only ever showing it outside production. Remove this
-            # whole entry from PLANS in config.py once testing is done.
-            if plan_id != "test_plan" or not settings.is_production
         ],
         "paymob_configured": settings.paymob_configured,
     })
