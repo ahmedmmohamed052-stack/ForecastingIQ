@@ -69,6 +69,17 @@ def _get_float(name: str, default: float) -> float:
 # can request forecasts of 3, 6 months (anything up to and including its
 # max_forecast_months), enforced in /forecast (see main.py).
 PLANS = {
+    "test_plan": {
+        # TEMPORARY — for verifying the real Paymob checkout → webhook →
+        # subscription-activation flow end-to-end without paying $30+ per
+        # test. Remove this before real launch so customers never see it.
+        "name": "Test Plan (remove before launch)",
+        "price_usd": 0.50,
+        "duration_days": 1,
+        "max_forecast_months": 3,
+        "max_trainings": 2,
+        "max_forecasts": 5,
+    },
     "forecast_3mo": {
         "name": "3-Month Forecast",
         "price_usd": 30.0,
@@ -230,4 +241,3 @@ class Settings:
 
 
 settings = Settings()
-
