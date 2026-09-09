@@ -99,6 +99,24 @@ main{position:relative;z-index:10;max-width:640px;margin:0 auto;padding:48px 24p
 </main>
 
 <script>
+// FastAPI validation errors (422) return `detail` as a LIST of error
+// objects, not a plain string — e.g. [{"loc":[...], "msg":"...", ...}].
+// A naive `d.detail` renders as the useless "[object Object]". This
+// normalizes any shape of `detail` into one readable string.
+function apiErrorMessage(d, fallback) {
+  const detail = d && d.detail;
+  if (!detail) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(e => {
+      if (typeof e === "string") return e;
+      const field = Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : "";
+      return field ? `${field}: ${e.msg}` : (e.msg || JSON.stringify(e));
+    }).join("; ");
+  }
+  return JSON.stringify(detail);
+}
+
 // Auto-detects local vs deployed — same file works either way.
 const API = new URLSearchParams(location.search).get("api") || location.origin;
 const params = new URLSearchParams(location.search);
@@ -164,7 +182,7 @@ async function loadPlanDetails() {
     const headers = await getAuthHeaders().catch(() => ({}));
     const res = await fetchWithTimeout(`${API}/billing/plans`, { headers }, 10000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
     const plan = d.plans.find(p => p.id === PLAN_ID);
     if (!plan) {
@@ -276,7 +294,7 @@ async function doSubscribe(planId, country) {
       body: JSON.stringify({ plan_id: planId, country: country }),
     }, 15000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
     // Opens the Paymob checkout iframe (for the chosen country/currency) in
     // a new tab — the payment system itself is untouched, this page only
@@ -308,7 +326,7 @@ async function doStartTrial(planId) {
       body: JSON.stringify({ plan_id: planId }),
     }, 15000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
     status.className = "status-msg ok";
     status.textContent = d.message + " Redirecting to your dashboard...";

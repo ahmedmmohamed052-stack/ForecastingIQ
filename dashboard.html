@@ -343,6 +343,24 @@ tr:hover td{background:rgba(124,58,255,.04);}
 </div>
  
 <script>
+// FastAPI validation errors (422) return `detail` as a LIST of error
+// objects, not a plain string — e.g. [{"loc":[...], "msg":"...", ...}].
+// A naive `d.detail` renders as the useless "[object Object]". This
+// normalizes any shape of `detail` into one readable string.
+function apiErrorMessage(d, fallback) {
+  const detail = d && d.detail;
+  if (!detail) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(e => {
+      if (typeof e === "string") return e;
+      const field = Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : "";
+      return field ? `${field}: ${e.msg}` : (e.msg || JSON.stringify(e));
+    }).join("; ");
+  }
+  return JSON.stringify(detail);
+}
+
 // Auto-detects local vs deployed — same file works either way.
 const API = new URLSearchParams(location.search).get("api") || location.origin;
  
@@ -425,7 +443,7 @@ async function fetchBillingStatus() {
     const headers = await getAuthHeaders();
     const res = await fetchWithTimeout(`${API}/billing/status`, { headers }, 10000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
     if (d.plan === "dev-bypass") {
       box.className = "status-box sb-idle";
@@ -463,7 +481,7 @@ async function renderPlans() {
 
     const res = await fetchWithTimeout(`${API}/billing/plans`, { headers }, 10000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
     _plansCache = d;
 
     // Pricing → Select Plan → Plan Details → Subscribe → Payment.
@@ -551,7 +569,7 @@ async function doTrain() {
     const fd = new FormData(); fd.append('file', files.train);
     const res = await fetch(`${API}/train`, { method:'POST', headers, body:fd });
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
     // /train now queues a background job instead of training inline —
     // poll GET /train/status/{job_id} until it's done or failed.
@@ -585,7 +603,7 @@ async function pollTrainingJob(jobId, intervalMs = 3000, maxWaitMs = 20 * 60 * 1
     }
     const res = await fetchWithTimeout(`${API}/train/status/${jobId}`, { headers }, 10000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
     if (d.status === "done") return d;
     if (d.status === "failed") throw new Error(d.error || "Training failed.");
