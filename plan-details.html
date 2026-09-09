@@ -199,6 +199,7 @@ async function loadPlanDetails() {
     const rows = [
       explain.data_rows && { icon: "📄", t: explain.data_rows.title, b: explain.data_rows.body, limit: `${plan.max_data_rows_per_month.toLocaleString()} rows/month` },
       explain.trainings && { icon: "🏋️", t: explain.trainings.title, b: explain.trainings.body, limit: `${plan.max_trainings}/month` },
+      explain.max_models && { icon: "🧠", t: explain.max_models.title, b: explain.max_models.body, limit: `${plan.max_models} saved model${plan.max_models === 1 ? '' : 's'}` },
       explain.forecast_points && { icon: "🔮", t: explain.forecast_points.title, b: explain.forecast_points.body, limit: `${plan.max_forecast_points_per_month.toLocaleString()}/month` },
       explain.forecast_horizon && { icon: "📆", t: explain.forecast_horizon.title, b: explain.forecast_horizon.body, limit: `up to ${plan.max_forecast_months} months ahead` },
       explain.historical_data && { icon: "🗂️", t: explain.historical_data.title, b: explain.historical_data.body, limit: `up to ${plan.max_historical_months} months` },

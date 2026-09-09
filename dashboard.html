@@ -162,6 +162,29 @@ tr:hover td{background:rgba(124,58,255,.04);}
 .btn-delete{width:100%;padding:12px;border:none;border-radius:11px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.18);color:#f87171;transition:all .2s;}
 .btn-delete:hover{background:rgba(248,113,113,.13);}
  
+/* MODELS LIST */
+.model-list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;}
+.model-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:rgba(255,255,255,.02);cursor:pointer;transition:all .2s;}
+.model-row:hover{border-color:rgba(52,211,153,.3);}
+.model-row.selected{border-color:var(--a4);background:rgba(52,211,153,.08);box-shadow:0 0 14px rgba(52,211,153,.12);}
+.model-row input[type=radio]{accent-color:var(--a4);}
+.model-info{flex:1;min-width:0;}
+.model-name{font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.model-meta{font-size:9px;color:var(--muted);margin-top:2px;}
+.model-del{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);color:#f87171;border-radius:7px;padding:5px 9px;font-size:10px;cursor:pointer;flex-shrink:0;}
+.model-del:hover{background:rgba(248,113,113,.18);}
+.model-name-input{width:100%;padding:9px 12px;border-radius:9px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;}
+.model-name-input::placeholder{color:var(--muted);}
+/* PAST FORECASTS LIST */
+.hist-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;}
+.hist-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:rgba(255,255,255,.02);}
+.hist-info{flex:1;min-width:0;}
+.hist-title{font-size:11px;color:var(--text);}
+.hist-meta{font-size:9px;color:var(--muted);margin-top:2px;}
+.hist-view{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:8px;background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);color:var(--a3);font-size:9px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;flex-shrink:0;}
+.hist-view:hover{background:rgba(240,171,252,.18);}
+.empty-note{font-size:11px;color:var(--muted);padding:10px 2px;}
+
 @keyframes fadeUp{from{opacity:0;transform:translateY(26px);}to{opacity:1;transform:translateY(0);}}
 .spin{display:inline-block;width:10px;height:10px;border:1.5px solid rgba(6,182,212,.3);border-top-color:var(--a2);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:4px;}
 @keyframes spin{to{transform:rotate(360deg);}}
@@ -229,6 +252,19 @@ tr:hover td{background:rgba(124,58,255,.04);}
       </div>
     </div>
 
+    <!-- YOUR MODELS -->
+    <div class="panel" id="models-panel" style="margin-bottom:22px;">
+      <div class="panel-head">
+        <div class="panel-icon" style="background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);">🧠</div>
+        <div class="panel-title">Your Models</div>
+        <span class="panel-badge" style="background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);color:var(--a3);">GET /models</span>
+      </div>
+      <div class="panel-body">
+        <div id="models-usage" class="metric-sub" style="margin-bottom:2px;">—</div>
+        <div class="model-list" id="models-list"><div class="empty-note">Loading your saved models...</div></div>
+      </div>
+    </div>
+
     <!-- MAIN PANELS -->
     <div class="panels">
       <!-- TRAIN -->
@@ -245,9 +281,11 @@ tr:hover td{background:rgba(124,58,255,.04);}
             <div class="drop-text">Drop CSV here or <span>browse</span></div>
             <div class="drop-fname" id="fn-train"></div>
           </div>
+          <input type="text" class="model-name-input" id="in-model-name" placeholder="Model name (optional) — e.g. Store 12 monthly sales" maxlength="80"/>
           <div class="prog-wrap"><div class="prog-bar" id="pb-train"></div></div>
           <button class="btn-action btn-train" id="btn-train" onclick="doTrain()" disabled>Train Model</button>
           <div class="status-box sb-idle" id="st-train"><span class="sb-icon">💡</span><span>Upload your full historical CSV to train the model.</span></div>
+          <div class="status-box sb-idle" id="st-models-quota" style="display:none;"></div>
           <div class="result-panel" id="res-train">
             <div class="result-head"><span>Training Metrics</span><div class="rh-dot"></div></div>
             <div class="result-body">
@@ -299,7 +337,7 @@ tr:hover td{background:rgba(124,58,255,.04);}
           </div>
           <div class="prog-wrap"><div class="prog-bar" id="pb-fc"></div></div>
           <button class="btn-action btn-forecast" id="btn-fc" onclick="doForecast()" disabled>Run Forecast</button>
-          <div class="status-box sb-idle" id="st-fc"><span class="sb-icon">💡</span><span>Upload a CSV and select a forecast horizon.</span></div>
+          <div class="status-box sb-idle" id="st-fc"><span class="sb-icon">💡</span><span>Select a model above, upload a CSV, and pick a forecast horizon.</span></div>
           <div class="result-panel" id="res-fc">
             <div class="result-head"><span>Forecast Results</span><div class="rh-dot"></div></div>
             <div class="result-body">
@@ -312,33 +350,16 @@ tr:hover td{background:rgba(124,58,255,.04);}
       </div>
     </div>
  
-    <!-- BOTTOM ROW -->
-    <div class="bottom-row">
-      <!-- METRICS -->
-      <div class="sub-panel sp-metrics">
-        <div class="panel-head">
-          <div class="panel-icon" style="background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);">📊</div>
-          <div class="panel-title">Model Metrics</div>
-          <span class="panel-badge" style="background:rgba(6,182,212,.1);border:1px solid rgba(6,182,212,.25);color:var(--a2);font-size:8px;padding:2px 8px;border-radius:20px;letter-spacing:.15em;text-transform:uppercase;margin-left:auto;">GET /metrics</span>
-        </div>
-        <div class="panel-body">
-          <button class="btn-refresh" onclick="fetchMetrics()">↻ Refresh Metrics</button>
-          <div class="status-box sb-idle" id="st-metrics"><span class="sb-icon">📡</span><span>Click to load your saved model metrics.</span></div>
-        </div>
+    <!-- PAST FORECASTS -->
+    <div class="panel" id="history-panel" style="margin-top:4px;">
+      <div class="panel-head">
+        <div class="panel-icon" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);">🕘</div>
+        <div class="panel-title">Past Forecasts</div>
+        <span class="panel-badge pb-green">GET /forecasts</span>
+        <button class="btn-refresh" style="width:auto;padding:6px 12px;margin-left:8px;" onclick="fetchForecastHistory()">↻ Refresh</button>
       </div>
- 
-      <!-- DANGER -->
-      <div class="sub-panel sp-danger">
-        <div class="panel-head">
-          <div class="panel-icon" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);">🗑️</div>
-          <div class="panel-title" style="background:linear-gradient(90deg,#f87171,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Danger Zone</div>
-          <span class="panel-badge" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);color:#f87171;font-size:8px;padding:2px 8px;border-radius:20px;letter-spacing:.15em;text-transform:uppercase;margin-left:auto;">DELETE /model</span>
-        </div>
-        <div class="panel-body">
-          <div class="status-box" style="background:rgba(248,113,113,.04);border:1px solid rgba(248,113,113,.1);color:rgba(248,113,113,.7);"><span class="sb-icon">⚠️</span><span>Permanently deletes your model. You will need to retrain from scratch.</span></div>
-          <div class="status-box sb-idle" id="st-delete" style="display:none;"><span class="sb-icon"></span><span></span></div>
-          <button class="btn-delete" onclick="doDelete()">🗑 Delete My Model</button>
-        </div>
+      <div class="panel-body">
+        <div class="hist-list" id="hist-list"><div class="empty-note">Loading your past forecasts...</div></div>
       </div>
     </div>
   </main>
@@ -387,10 +408,14 @@ function currentUserLabel() {
 // ── Auth guard ─────────────────────────────────────────────────────────────
 // _authHandled: يمنع onAuthStateChanged يتنادي أكتر من مرة
 let _authHandled = false;
+function loadDashboardData() {
+  fetchModels();
+  fetchBillingStatus();
+  fetchForecastHistory();
+}
 if (isDevMode()) {
   document.getElementById("nav-email").textContent = currentUserLabel() + " (dev mode)";
-  fetchMetrics();
-  fetchBillingStatus();
+  loadDashboardData();
 } else {
   auth.onAuthStateChanged(user => {
     if (!user) {
@@ -400,8 +425,7 @@ if (isDevMode()) {
     if (_authHandled) return; // Firebase بيعمل re-fire أحياناً — نتجاهله
     _authHandled = true;
     document.getElementById("nav-email").textContent = user.email;
-    fetchMetrics();
-    fetchBillingStatus();
+    loadDashboardData();
   });
 }
  
@@ -455,10 +479,16 @@ async function fetchBillingStatus() {
       const u = d.usage || {};
       const trialTag = d.is_trial ? ' <span style="opacity:.7">(free trial)</span>' : '';
       box.innerHTML = `<span class="sb-icon">✅</span><span>Plan: <strong>${d.plan}</strong>${trialTag} · Renews: <strong>${new Date(d.expires_at).toLocaleDateString()}</strong><br>
-        <small style="opacity:.7">Trainings used: ${u.trainings_used ?? '—'}/${u.trainings_limit ?? '—'} · Forecasts used: ${u.forecasts_used ?? '—'}/${u.forecasts_limit ?? '—'}</small></span>`;
+        <small style="opacity:.7">Trainings used: ${u.trainings_used ?? '—'}/${u.trainings_limit ?? '—'} · Forecast points used: ${u.forecast_points_used ?? '—'}/${u.forecast_points_limit ?? '—'} · Models saved: ${u.models_used ?? '—'}/${u.models_limit ?? '—'}</small></span>`;
     } else {
       box.className = "status-box sb-idle";
       box.innerHTML = `<span class="sb-icon">⚠️</span><span>No active subscription — choose a plan below to unlock training and forecasting.</span>`;
+    }
+    if (d.usage) {
+      document.getElementById('models-usage').textContent =
+        `Saved models: ${d.usage.models_used ?? 0}/${d.usage.models_limit ?? '—'}`;
+    } else {
+      document.getElementById('models-usage').textContent = '';
     }
   } catch (e) {
     box.className = "status-box sb-idle";
@@ -522,7 +552,8 @@ function onFile(type) {
   if (!el.files[0]) return;
   files[type] = el.files[0];
   document.getElementById(type === 'train' ? 'fn-train' : 'fn-fc').textContent = el.files[0].name;
-  document.getElementById(type === 'train' ? 'btn-train' : 'btn-fc').disabled = false;
+  if (type === 'train') document.getElementById('btn-train').disabled = false;
+  else document.getElementById('btn-fc').disabled = !selectedModelId;
 }
 function onDrag(e,id){ e.preventDefault(); document.getElementById(id).classList.add('drag-over'); }
 function offDrag(id){ document.getElementById(id).classList.remove('drag-over'); }
@@ -532,7 +563,8 @@ function onDrop(e,type){
   if (!f||!f.name.endsWith('.csv')) return;
   files[type]=f;
   document.getElementById(type==='train'?'fn-train':'fn-fc').textContent=f.name;
-  document.getElementById(type==='train'?'btn-train':'btn-fc').disabled=false;
+  if (type === 'train') document.getElementById('btn-train').disabled = false;
+  else document.getElementById('btn-fc').disabled = !selectedModelId;
 }
  
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -569,7 +601,9 @@ async function doTrain() {
   try {
     const headers = await getAuthHeaders();
     const fd = new FormData(); fd.append('file', files.train);
-    const res = await fetch(`${API}/train`, { method:'POST', headers, body:fd });
+    const name = document.getElementById('in-model-name').value.trim();
+    const qs = name ? `?model_name=${encodeURIComponent(name)}` : '';
+    const res = await fetch(`${API}/train${qs}`, { method:'POST', headers, body:fd });
     const d = await res.json();
     if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
 
@@ -587,10 +621,91 @@ async function doTrain() {
     document.getElementById('r-lags').textContent  = m.best_lags     ?? '—';
     document.getElementById('r-roll').textContent  = m.best_roll     ?? '—';
     document.getElementById('res-train').classList.add('on');
-    setStatus('st-train','success','✅',`Model saved for <strong>${currentUserLabel()}</strong>`);
+    setStatus('st-train','success','✅',`Model saved for <strong>${currentUserLabel()}</strong> — pick it below to run a forecast.`);
     updateBar(m);
+    document.getElementById('in-model-name').value = '';
+    await fetchModels();      // refresh the list so the new model shows up
+    await fetchBillingStatus(); // usage counters (models_used) just changed
   } catch(e) { setStatus('st-train','error','❌',e.message); }
   setProg('pb-train',false); btn.disabled=false;
+}
+
+// ── Models list (train once, forecast with any saved model) ────────────────
+let selectedModelId = '';
+let modelsCache = [];
+
+async function fetchModels() {
+  const list = document.getElementById('models-list');
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/models`, { headers }, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    modelsCache = d.models || [];
+
+    // Cap the Train panel if the plan's model limit is already reached.
+    const quotaBox = document.getElementById('st-models-quota');
+    if (d.max_models != null && d.models.length >= d.max_models) {
+      quotaBox.style.display = 'flex';
+      quotaBox.className = 'status-box sb-error';
+      quotaBox.innerHTML = `<span class="sb-icon">⚠️</span><span>You've reached your plan's limit of ${d.max_models} saved model(s). Delete one below, or upgrade your plan.</span>`;
+    } else {
+      quotaBox.style.display = 'none';
+    }
+
+    renderModels();
+
+    // Keep the currently selected model if it still exists, else auto-pick the newest.
+    if (!modelsCache.find(m => m.id === selectedModelId)) {
+      selectedModelId = modelsCache[0] ? modelsCache[0].id : '';
+    }
+    applySelection();
+  } catch (e) {
+    list.innerHTML = `<div class="empty-note" style="color:#f87171;">${e.message}</div>`;
+  }
+}
+
+function renderModels() {
+  const list = document.getElementById('models-list');
+  if (!modelsCache.length) {
+    list.innerHTML = `<div class="empty-note">No trained models yet — upload a CSV in "Train Model" to create your first one.</div>`;
+    return;
+  }
+  list.innerHTML = modelsCache.map(m => `
+    <div class="model-row ${m.id === selectedModelId ? 'selected' : ''}" onclick="selectModel('${m.id}')">
+      <input type="radio" name="model-pick" ${m.id === selectedModelId ? 'checked' : ''} onclick="event.stopPropagation(); selectModel('${m.id}')"/>
+      <div class="model-info">
+        <div class="model-name">${m.name || m.model_name || 'Untitled model'}</div>
+        <div class="model-meta">${m.model_name || '—'} · Val RMSE ${m.val_rmse ?? '—'} · ${m.created_at ? new Date(m.created_at).toLocaleString() : ''}</div>
+      </div>
+      <button class="model-del" onclick="event.stopPropagation(); deleteModel('${m.id}')">🗑</button>
+    </div>
+  `).join('');
+}
+
+function selectModel(id) {
+  selectedModelId = id;
+  applySelection();
+}
+
+function applySelection() {
+  renderModels();
+  const m = modelsCache.find(x => x.id === selectedModelId);
+  if (m) updateBar(m);
+  document.getElementById('btn-fc').disabled = !(selectedModelId && files.forecast);
+}
+
+async function deleteModel(id) {
+  if (!confirm('Delete this saved model? You will need to retrain to get it back.')) return;
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/models/${encodeURIComponent(id)}`, { method:'DELETE', headers }, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    if (selectedModelId === id) selectedModelId = '';
+    await fetchModels();
+    await fetchBillingStatus();
+  } catch (e) { alert(e.message); }
 }
 
 // Polls a training job's status every 3 seconds until it's done or failed.
@@ -622,7 +737,7 @@ let lastCSV = '';
 let lastForecastId = '';
 let lastForecastMonths = 3;
 async function doForecast() {
-  if (!files.forecast) return;
+  if (!files.forecast || !selectedModelId) return;
   const btn = document.getElementById('btn-fc');
   btn.disabled=true; setProg('pb-fc',true);
   setStatus('st-fc','loading','<span class="spin"></span>','Running forecast...');
@@ -632,7 +747,7 @@ async function doForecast() {
     const months = document.querySelector('input[name="fc-months"]:checked').value;
     lastForecastMonths = parseInt(months);
     const fd = new FormData(); fd.append('file', files.forecast);
-    const res = await fetchWithTimeout(`${API}/forecast?months=${months}`, { method:'POST', headers, body:fd }, 60000); // 1 min timeout
+    const res = await fetchWithTimeout(`${API}/forecast?months=${months}&model_id=${encodeURIComponent(selectedModelId)}`, { method:'POST', headers, body:fd }, 60000); // 1 min timeout
     if (!res.ok) { const e=await res.json(); throw new Error(apiErrorMessage(e, res.statusText)); }
     lastCSV = await res.text();
     lastForecastId = res.headers.get('X-Forecast-Id') || '';
@@ -644,6 +759,8 @@ async function doForecast() {
     document.getElementById('res-fc').classList.add('on');
     document.getElementById('btn-insights').disabled = !lastForecastId;
     setStatus('st-fc','success','✅',`Forecast complete — ${months}-month predictions ready.`);
+    fetchForecastHistory();
+    fetchBillingStatus();
   } catch(e) { setStatus('st-fc','error','❌',e.message); }
   setProg('pb-fc',false); btn.disabled=false;
 }
@@ -657,58 +774,49 @@ function downloadCSV() {
 }
  
 // ── View Insights ─────────────────────────────────────────────────────────
-// Opens the real, data-driven Insights dashboard for the forecast that was
-// just run — /insights reads everything it needs from GET
-// /forecasts/{forecast_id} (predictions + historical snapshot + schema +
-// metrics), so all we pass here is the id, not the actual data.
-function viewInsights() {
-  if (!lastForecastId) return;
-  window.open(`/insights?forecast_id=${encodeURIComponent(lastForecastId)}`, '_blank');
+// Opens the real, data-driven Insights dashboard for a saved forecast run —
+// /insights reads everything it needs from GET /forecasts/{forecast_id}
+// (predictions + historical snapshot + schema + metrics), so all we pass
+// here is the id, not the actual data. Works both right after a fresh
+// forecast AND for any past forecast picked from the history list below —
+// it no longer depends on an in-memory variable that resets on reload.
+function viewInsights(forecastId) {
+  const id = forecastId || lastForecastId;
+  if (!id) return;
+  window.open(`/insights?forecast_id=${encodeURIComponent(id)}`, '_blank');
 }
- 
-// ── Metrics ────────────────────────────────────────────────────────────────
-async function fetchMetrics() {
-  setStatus('st-metrics','loading','<span class="spin"></span>','Loading metrics...');
+
+// ── Past Forecasts history ──────────────────────────────────────────────────
+async function fetchForecastHistory() {
+  const list = document.getElementById('hist-list');
   try {
     const headers = await getAuthHeaders();
-    const res = await fetchWithTimeout(`${API}/metrics`,{headers}, 10000);
- 
-    // 404 = مفيش موديل متدرب لحد دلوقتي — ده طبيعي مش error
-    if (res.status === 404) {
-      setStatus('st-metrics','idle','📡','No trained model yet. Upload a CSV and click Train Model.');
-      return;
-    }
- 
+    const res = await fetchWithTimeout(`${API}/forecasts?limit=20`, { headers }, 10000);
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail||res.statusText);
-    updateBar(d);
-    setStatus('st-metrics','success','✅',`Model: <strong>${d.model_name}</strong> · Val RMSE: <strong>${d.val_rmse}</strong> · Lags: <strong>${d.best_lags}</strong><br><small style="opacity:.6">Trained by: ${d.owner_email || 'unknown'}</small>`);
-  } catch(e) {
-    // Network error أو السيرفر مش شغال
-    const msg = e.message && e.message.includes('fetch')
-      ? 'Cannot reach server — make sure the API is running on port 8000.'
-      : e.message;
-    setStatus('st-metrics','error','❌', msg);
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    renderHistory(d.forecasts || []);
+  } catch (e) {
+    list.innerHTML = `<div class="empty-note" style="color:#f87171;">${e.message}</div>`;
   }
 }
- 
-// ── Delete ─────────────────────────────────────────────────────────────────
-async function doDelete() {
-  if (!confirm('Delete your saved model? You will need to retrain.')) return;
-  const st = document.getElementById('st-delete');
-  st.style.display='flex';
-  setStatus('st-delete','loading','<span class="spin"></span>','Deleting model...');
-  try {
-    const headers = await getAuthHeaders();
-    const res = await fetchWithTimeout(`${API}/model`,{method:'DELETE',headers}, 10000);
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.detail||res.statusText);
-    setStatus('st-delete','success','✅',d.message);
-    ['m-status','m-val','m-base','m-acc'].forEach(id=>document.getElementById(id).textContent='—');
-    const b=document.getElementById('m-badge'); b.textContent='No Model'; b.className='metric-badge mb-none';
-  } catch(e) { setStatus('st-delete','error','❌',e.message); }
+
+function renderHistory(items) {
+  const list = document.getElementById('hist-list');
+  if (!items.length) {
+    list.innerHTML = `<div class="empty-note">No forecasts run yet — run one above and it'll show up here.</div>`;
+    return;
+  }
+  list.innerHTML = items.map(f => `
+    <div class="hist-row">
+      <div class="hist-info">
+        <div class="hist-title">${f.model_name || 'Forecast'} · ${f.months ?? '—'}-month horizon</div>
+        <div class="hist-meta">Val RMSE ${f.val_rmse ?? '—'} · ${f.created_at ? new Date(f.created_at).toLocaleString() : ''}</div>
+      </div>
+      <a class="hist-view" href="/insights?forecast_id=${encodeURIComponent(f.id)}" target="_blank" rel="noopener">📊 View Insights</a>
+    </div>
+  `).join('');
 }
- 
+
 // ── Neural SVG bg ──────────────────────────────────────────────────────────
 (function(){
   const svg=document.getElementById('nsvg');

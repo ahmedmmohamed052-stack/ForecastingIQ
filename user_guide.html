@@ -698,13 +698,13 @@
     <div class="section-head">
       <div class="section-icon ic-retrain">🔄</div>
       <div class="section-title-block">
-        <div class="section-title">Retrain — DELETE /model</div>
+        <div class="section-title">Manage Models — GET /models · DELETE /models/{model_id}</div>
         <div class="section-badge badge-delete">DELETE · Optional</div>
       </div>
     </div>
     <div class="section-body">
       <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
-        If you have new data or want to retrain from scratch — delete the saved model first, then upload the new data to <span style="color:var(--accent2)">/train</span>.
+        Every training run saves a NEW model instead of overwriting the last one (up to your plan's model limit) — pick which saved model to use each time you call <span style="color:var(--accent2)">/forecast</span> via its <code>model_id</code>. Delete an old one from the dashboard or via <span style="color:var(--accent4)">DELETE /models/{model_id}</span> if you want to free up a slot.
       </div>
       <div class="steps">
         <div class="step">
@@ -730,13 +730,13 @@
     <div class="section-head">
       <div class="section-icon ic-metrics">📊</div>
       <div class="section-title-block">
-        <div class="section-title">GET /metrics — Check Model Performance</div>
+        <div class="section-title">GET /models/{model_id} — Check Model Performance</div>
         <div class="section-badge badge-get">GET</div>
       </div>
     </div>
     <div class="section-body">
       <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
-        At any time you can view the performance metrics of your saved model without uploading any file.
+        At any time you can view the performance metrics of any of your saved models (by its model_id) without uploading any file.
       </div>
       <div class="info-row">
         <div class="info-pill">

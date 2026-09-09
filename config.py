@@ -83,9 +83,10 @@ PLANS = {
         "max_data_rows_per_month": 50_000,
         "max_trainings": 2,
         "max_forecast_points_per_month": 10_000,
+        "max_models": 2,
         "product_level_forecasting": True,
         "advanced_forecasting": False,
-        "features": ["Dashboard", "Data export"],
+        "features": ["Dashboard", "Data export", "2 saved trained models"],
     },
     "starter": {
         "name": "Starter",
@@ -98,6 +99,7 @@ PLANS = {
         "max_data_rows_per_month": 50_000,
         "max_trainings": 10,
         "max_forecast_points_per_month": 10_000,
+        "max_models": 2,
         "product_level_forecasting": True,
         "advanced_forecasting": False,
         "features": [
@@ -106,6 +108,7 @@ PLANS = {
             "10K forecasted data points/month",
             "Up to 3-month forecast horizon",
             "Up to 12 months of historical data",
+            "Up to 2 saved trained models",
             "Product-level forecasting",
             "Dashboard",
             "Data export",
@@ -122,6 +125,7 @@ PLANS = {
         "max_data_rows_per_month": 500_000,
         "max_trainings": 50,
         "max_forecast_points_per_month": 100_000,
+        "max_models": 4,
         "product_level_forecasting": True,
         "advanced_forecasting": True,
         "features": [
@@ -130,6 +134,7 @@ PLANS = {
             "100K forecasted data points/month",
             "Up to 12-month forecast horizon",
             "Up to 36 months of historical data",
+            "Up to 4 saved trained models",
             "Advanced forecasting capabilities",
             "Data export",
         ],
@@ -145,6 +150,7 @@ PLANS = {
         "max_data_rows_per_month": 2_000_000,
         "max_trainings": 200,
         "max_forecast_points_per_month": 500_000,
+        "max_models": 6,
         "product_level_forecasting": True,
         "advanced_forecasting": True,
         "features": [
@@ -153,6 +159,7 @@ PLANS = {
             "500K forecasted data points/month",
             "Up to 24-month forecast horizon",
             "60+ months of historical data",
+            "Up to 6 saved trained models",
             "Advanced forecasting capabilities",
             "Data export",
         ],
@@ -202,6 +209,15 @@ PLAN_FEATURE_EXPLANATIONS = {
     "product_level": {
         "title": "Product-level forecasting",
         "body": "Get a separate forecast for each individual product, store, or category instead of just one combined total.",
+    },
+    "max_models": {
+        "title": "Saved trained models",
+        "body": (
+            "Every time you train, ForecastingIQ saves the resulting model so you can reuse it "
+            "for future forecasts without retraining. Your plan caps how many trained models you "
+            "can keep at once — delete an old one from the dashboard to free up a slot, or upgrade "
+            "your plan for more."
+        ),
     },
     "dashboard": {
         "title": "Dashboard",

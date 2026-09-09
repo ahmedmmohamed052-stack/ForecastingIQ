@@ -93,7 +93,7 @@ security = HTTPBearer(auto_error=False)
 
 def _save_trained_model(uid: str, bundle: dict):
     """Hook called by the training job queue once a job finishes successfully."""
-    upload_model(uid, bundle)
+    save_model(uid, bundle, name=bundle.pop("requested_model_name", None))
 
 
 training_queue = TrainingJobQueue(
@@ -168,10 +168,28 @@ def send_forecast_email(to_email: str, forecast_csv: str, months: int, metrics: 
 # ⚠️ Firestore عنده حد أقصى 1 MiB لكل document. base64 بيكبّر حجم البيانات
 # بنسبة ~33%، فاحنا حاطين سقف أمان عند 700KB للموديل الخام (raw bytes) قبل
 # التحويل، عشان نضمن إننا تحت الـ 1 MiB بهامش كافي لباقي الـ fields.
+#
+# NOTE: each user can now save SEVERAL trained models (capped by their
+# plan's max_models — see config.PLANS) instead of just one. Models live
+# at users/{uid}/models/{model_id} instead of the old models/{uid} single
+# document, so /train no longer overwrites a previous model — it adds a
+# new one, and /forecast is told which one to use via ?model_id=.
 MODEL_SIZE_LIMIT_BYTES = 700_000
 
-def upload_model(uid: str, bundle: dict):
-    """يحفظ الـ model كـ base64 string في Firestore تحت models/{uid}"""
+
+def _models_collection(uid: str):
+    return db.collection("users").document(uid).collection("models")
+
+
+def count_models(uid: str) -> int:
+    """Cheap count of how many trained models this user currently has saved."""
+    return len(list(_models_collection(uid).select([]).stream()))
+
+
+def save_model(uid: str, bundle: dict, name: str = None) -> str:
+    """Saves a NEW trained model as base64 in Firestore under
+    users/{uid}/models/{model_id} and returns the new model_id. Never
+    overwrites an existing model."""
     buf = io.BytesIO()
     joblib.dump(bundle, buf)
     raw_bytes = buf.getvalue()
@@ -185,16 +203,53 @@ def upload_model(uid: str, bundle: dict):
         )
 
     encoded = base64.b64encode(raw_bytes).decode("ascii")
-    db.collection("models").document(uid).set({
-        "blob":       encoded,
-        "size_bytes": len(raw_bytes),
-        "updated_at": firestore.SERVER_TIMESTAMP,
+    metrics = bundle.get("metrics", {})
+    doc_ref = _models_collection(uid).document()
+    doc_ref.set({
+        "name":          (name or "").strip() or metrics.get("model_name") or "Untitled model",
+        "blob":          encoded,
+        "size_bytes":    len(raw_bytes),
+        "created_at":    firestore.SERVER_TIMESTAMP,
+        "updated_at":    firestore.SERVER_TIMESTAMP,
+        "owner_email":   bundle.get("owner_email", "unknown"),
+        "model_name":    metrics.get("model_name"),
+        "train_rmse":    metrics.get("train_rmse"),
+        "val_rmse":      metrics.get("val_rmse"),
+        "baseline_rmse": metrics.get("baseline_rmse"),
+        "lags":          bundle.get("lags"),
+        "roll":          bundle.get("roll"),
+        "schema":        bundle.get("schema"),
     })
+    return doc_ref.id
 
 
-def download_model(uid: str):
-    """يحمّل الـ model من Firestore ويرجّعه كـ dict bundle، أو None لو مفيش"""
-    doc = db.collection("models").document(uid).get()
+def list_models(uid: str) -> list[dict]:
+    """Returns lightweight metadata (no blob) for every model this user has
+    saved, newest first — used by the dashboard's model picker/list."""
+    docs = _models_collection(uid).order_by(
+        "created_at", direction=firestore.Query.DESCENDING
+    ).stream()
+    items = []
+    for d in docs:
+        data = d.to_dict()
+        created_at = data.get("created_at")
+        items.append({
+            "id":            d.id,
+            "name":          data.get("name") or data.get("model_name") or "Untitled model",
+            "created_at":    created_at.isoformat() if created_at else None,
+            "model_name":    data.get("model_name"),
+            "train_rmse":    data.get("train_rmse"),
+            "val_rmse":      data.get("val_rmse"),
+            "baseline_rmse": data.get("baseline_rmse"),
+            "schema":        data.get("schema"),
+            "size_bytes":    data.get("size_bytes"),
+        })
+    return items
+
+
+def download_model(uid: str, model_id: str):
+    """يحمّل موديل معيّن من Firestore ويرجّعه كـ dict bundle، أو None لو مفيش"""
+    doc = _models_collection(uid).document(model_id).get()
     if not doc.exists:
         return None
 
@@ -203,9 +258,9 @@ def download_model(uid: str):
     return joblib.load(io.BytesIO(raw_bytes))
 
 
-def delete_model_cloud(uid: str) -> bool:
-    """يحذف الـ model المحفوظ في Firestore"""
-    doc_ref = db.collection("models").document(uid)
+def delete_model_cloud(uid: str, model_id: str) -> bool:
+    """يحذف موديل معيّن محفوظ في Firestore"""
+    doc_ref = _models_collection(uid).document(model_id)
     if not doc_ref.get().exists:
         return False
     doc_ref.delete()
@@ -223,6 +278,7 @@ def save_forecast_to_firestore(
     preds_df: pd.DataFrame,
     historical_df: pd.DataFrame,
     sch: dict,
+    model_id: str = None,
 ) -> str:
     """
     يحفظ نتيجة الـ forecast كـ document جديد تحت:
@@ -244,6 +300,7 @@ def save_forecast_to_firestore(
         "owner_email":   email,
         "created_at":    firestore.SERVER_TIMESTAMP,
         "months":        months,
+        "model_id":      model_id,
         "model_name":    metrics.get("model_name"),
         "train_rmse":    metrics.get("train_rmse"),
         "val_rmse":      metrics.get("val_rmse"),
@@ -761,6 +818,7 @@ async def train_endpoint(
     date_column: Optional[str] = Query(None, description="Force which column is the date/time axis (auto-detected if omitted)"),
     group_column: Optional[str] = Query(None, description="Force which column splits the data into separate series, e.g. product_id (auto-detected if omitted; omit entirely for a single series)"),
     target_column: Optional[str] = Query(None, description="Force which numeric column to forecast (auto-detected if omitted)"),
+    model_name: Optional[str] = Query(None, description="Optional display name to save this model under, e.g. 'Store 12 — monthly sales' (shown in the dashboard's model list)"),
     user=Depends(verify_user),
 ):
     """
@@ -790,6 +848,22 @@ async def train_endpoint(
     # ── Subscription quota: has this user paid for another training run? ───
     await _quota_check(user, "training")
 
+    # ── Saved-model cap: how many trained models does this plan allow you
+    #    to keep at once? Checked BEFORE queueing the job so we never burn
+    #    a training run (and its quota) on a model that can't be saved. ───
+    if not user.get("is_dev_bypass"):
+        sub = await asyncio.to_thread(billing.get_subscription, db, user["uid"])
+        if billing.is_subscription_active(sub):
+            plan = PLANS[sub["plan"]]
+            existing = await asyncio.to_thread(count_models, user["uid"])
+            if existing >= plan["max_models"]:
+                raise HTTPException(
+                    402,
+                    f"Your '{plan['name']}' plan can keep at most {plan['max_models']} "
+                    f"saved trained model(s) — you already have {existing}. Delete an "
+                    f"existing model from the dashboard, or upgrade your plan at /billing/plans."
+                )
+
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "Only CSV files allowed")
 
@@ -808,7 +882,7 @@ async def train_endpoint(
     # ── Data-rows quota: counted from the actual uploaded CSV size ─────────
     await _quota_check(user, "data_rows", amount=len(df))
 
-    job_id = training_queue.submit(user["uid"], user.get("email", "unknown"), df, sch)
+    job_id = training_queue.submit(user["uid"], user.get("email", "unknown"), df, sch, model_name=model_name)
     logger.info(
         f"Training job {job_id} queued for uid={user['uid']} "
         f"(date_col={sch['date_col']}, group_col={sch['group_col']}, target_col={sch['target_col']})"
@@ -843,6 +917,7 @@ def train_status(job_id: str, user=Depends(verify_user)):
 async def forecast_endpoint(
     file: UploadFile = File(..., description="CSV file with historical sales data"),
     months: int = Query(3, description="Forecast horizon in months", enum=FORECAST_HORIZON_OPTIONS),
+    model_id: str = Query(..., description="Which of your saved trained models to forecast with — see GET /models"),
     user=Depends(verify_user),
 ):
     """
@@ -871,13 +946,13 @@ async def forecast_endpoint(
     # network round-trip on a model that might not even end up being used.
     contents = await read_upload_within_limit(file)
 
-    # ── 2. Load user's saved model ────────────────────────────────────────
-    bundle = await asyncio.to_thread(download_model, user["uid"])
+    # ── 2. Load the model the caller chose ─────────────────────────────────
+    bundle = await asyncio.to_thread(download_model, user["uid"], model_id)
     if not bundle:
         raise HTTPException(
             404,
-            "No trained model found for your account. "
-            "Please call POST /train first with your historical data."
+            "No saved model found with that model_id for your account. "
+            "Call GET /models to see your trained models, or POST /train to create one."
         )
 
     # ── 3. Validate against the schema saved at training time & prepare ────
@@ -919,6 +994,7 @@ async def forecast_endpoint(
             preds_df,
             df,
             bundle["schema"],
+            model_id,
         )
     except Exception as fs_exc:
         logger.warning(f"Firestore save failed (non-fatal): {fs_exc}", exc_info=True)
@@ -960,41 +1036,32 @@ async def forecast_endpoint(
 
 
 # =============================================================================
-# 🗑️  DELETE MODEL ENDPOINT — يحذف الـ model المحفوظ للـ user
+# 🗂️  MODELS — list / inspect / delete your saved trained models
 # =============================================================================
-@app.delete(
-    "/model",
-    summary="Delete your saved model",
-)
-async def delete_model(user=Depends(verify_user)):
+@app.get("/models", summary="List your saved trained models (for the dashboard's model picker)")
+async def get_models(user=Depends(verify_user)):
     """
-    يحذف الـ model المحفوظ للـ user — بعد كده لازم يعمل /train تاني.
-    مفيد لو اليوزر عايز يعيد الـ training على داتا جديدة من الأساس.
+    يرجّع كل الـ models المحفوظة لليوزر (الأحدث أولاً) — يستخدمها الداشبورد
+    عشان يعرض قائمة الموديلات ويختار منها اليوزر أي موديل يستخدم وقت الـ forecast.
     """
-    deleted = await asyncio.to_thread(delete_model_cloud, user["uid"])
-    if not deleted:
-        raise HTTPException(404, "No model found to delete.")
-    return JSONResponse({"message": "✅ Model deleted. You can now retrain with new data."})
+    items = await asyncio.to_thread(list_models, user["uid"])
+    max_models = None
+    if not user.get("is_dev_bypass"):
+        sub = await asyncio.to_thread(billing.get_subscription, db, user["uid"])
+        if billing.is_subscription_active(sub):
+            max_models = PLANS[sub["plan"]]["max_models"]
+    return JSONResponse({"models": items, "count": len(items), "max_models": max_models})
 
 
-# =============================================================================
-# 📊  METRICS ENDPOINT (PROTECTED)
-# =============================================================================
-@app.get("/metrics", summary="Get your saved model's metrics")
-def get_metrics(user=Depends(verify_user)):
-    """
-    يرجّع الـ metrics الخاصة بالـ model المحفوظ للـ user.
-    """
-    bundle = download_model(user["uid"])
+@app.get("/models/{model_id}", summary="Get one saved model's metrics")
+def get_model(model_id: str, user=Depends(verify_user)):
+    bundle = download_model(user["uid"], model_id)
     if not bundle:
-        raise HTTPException(
-            404,
-            "No trained model found. Please call POST /train first."
-        )
+        raise HTTPException(404, "No saved model found with that model_id for your account.")
 
     metrics = bundle["metrics"]
-
     return JSONResponse({
+        "id":            model_id,
         "model_name":    metrics["model_name"],
         "owner_email":   bundle.get("owner_email", "unknown"),
         "train_rmse":    round(metrics["train_rmse"],    4),
@@ -1002,7 +1069,20 @@ def get_metrics(user=Depends(verify_user)):
         "baseline_rmse": round(metrics["baseline_rmse"], 4),
         "best_lags":     bundle["lags"],
         "best_roll":     bundle["roll"],
+        "schema":        bundle.get("schema"),
     })
+
+
+@app.delete("/models/{model_id}", summary="Delete one of your saved trained models")
+async def delete_model(model_id: str, user=Depends(verify_user)):
+    """
+    يحذف موديل واحد محفوظ لليوزر (بيفضي slot من الـ max_models بتاع الخطة).
+    لو اليوزر عايز يستخدم الموديل ده تاني، لازم يعيد الـ /train.
+    """
+    deleted = await asyncio.to_thread(delete_model_cloud, user["uid"], model_id)
+    if not deleted:
+        raise HTTPException(404, "No model found with that model_id to delete.")
+    return JSONResponse({"message": "✅ Model deleted."})
 
 
 # =============================================================================
@@ -1132,6 +1212,8 @@ def billing_status(user=Depends(verify_user)):
             "data_rows_limit": plan["max_data_rows_per_month"],
             "forecast_points_used": usage.get("forecast_points_used", 0),
             "forecast_points_limit": plan["max_forecast_points_per_month"],
+            "models_used": count_models(user["uid"]),
+            "models_limit": plan["max_models"],
         }
     return JSONResponse(response)
 

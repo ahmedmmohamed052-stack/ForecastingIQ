@@ -73,7 +73,7 @@ class TrainingJobQueue:
                 await self._run_job(job_id)
             self._queue.task_done()
 
-    def submit(self, uid: str, owner_email: str, df: pd.DataFrame, schema: dict) -> str:
+    def submit(self, uid: str, owner_email: str, df: pd.DataFrame, schema: dict, model_name: str = None) -> str:
         job_id = uuid.uuid4().hex
         self._jobs[job_id] = {
             "job_id": job_id,
@@ -83,6 +83,7 @@ class TrainingJobQueue:
             "submitted_at": datetime.now(timezone.utc),
             "df": df,
             "schema": schema,
+            "model_name": model_name,
             "result": None,
             "error": None,
         }
@@ -109,6 +110,7 @@ class TrainingJobQueue:
             bundle = await asyncio.to_thread(train_on_df, job["df"], job["schema"])
             bundle["owner_uid"] = job["uid"]
             bundle["owner_email"] = job.get("owner_email", "unknown")
+            bundle["requested_model_name"] = job.get("model_name")
             job["status"] = JobStatus.DONE
             job["result"] = bundle
             job["finished_at"] = datetime.now(timezone.utc)
