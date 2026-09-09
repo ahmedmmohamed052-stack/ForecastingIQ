@@ -515,32 +515,28 @@
     </div>
     <div class="section-body">
       <div class="step-desc" style="font-size:11px;color:var(--muted);line-height:1.7;">
-        Your CSV file must contain exactly these columns:
+        Your CSV can now have <strong>any columns</strong> — ForecastIQ auto-detects
+        which one is the date, which one (if any) splits your data into separate
+        series to forecast independently (like a product or store ID), and which
+        numeric column to predict. You don't need to rename anything to match a
+        fixed template.
       </div>
       <div class="col-grid">
         <div class="col-item">
-          <div class="col-name">month</div>
-          <div class="col-desc">Month date — e.g. 2024-01-01</div>
+          <div class="col-name">A date/time column</div>
+          <div class="col-desc">Any name — e.g. month, date, week_start. Needs to be parseable as a date.</div>
         </div>
         <div class="col-item">
-          <div class="col-name">product_id</div>
-          <div class="col-desc">Product identifier — e.g. P001</div>
+          <div class="col-name">A numeric target column</div>
+          <div class="col-desc">The thing you want to forecast — e.g. sales, revenue, units_sold, number_of_product_purchases.</div>
         </div>
         <div class="col-item">
-          <div class="col-name">number_of_product_purchases</div>
-          <div class="col-desc">Actual sales count for that month</div>
+          <div class="col-name">A grouping column (optional)</div>
+          <div class="col-desc">Splits the data into separate series forecast independently — e.g. product_id, store_name. Omit it if you only have one series.</div>
         </div>
         <div class="col-item">
-          <div class="col-name">number_of_times_added_to_cart</div>
-          <div class="col-desc">Number of times the product was added to cart</div>
-        </div>
-        <div class="col-item">
-          <div class="col-name">number_of_times_add_followed_by_purchase</div>
-          <div class="col-desc">Cart additions that resulted in a purchase</div>
-        </div>
-        <div class="col-item">
-          <div class="col-name">number_of_times_add_followed_by_no_purchase</div>
-          <div class="col-desc">Cart additions that did not result in a purchase</div>
+          <div class="col-name">Any other columns</div>
+          <div class="col-desc">Used automatically as extra model inputs — numeric columns as-is, text columns one-hot encoded.</div>
         </div>
       </div>
       <div class="code-block">
@@ -548,16 +544,23 @@
           <div class="code-dots"><div class="code-dot cd-r"></div><div class="code-dot cd-y"></div><div class="code-dot cd-g"></div></div>
           <div class="code-lang">example.csv</div>
         </div>
-        <pre><span class="c-key">month</span>,<span class="c-key">product_id</span>,<span class="c-key">number_of_product_purchases</span>,<span class="c-key">number_of_times_added_to_cart</span>,...
-<span class="c-str">2024-01-01</span>,<span class="c-val">P001</span>,<span class="c-val">120</span>,<span class="c-val">340</span>,<span class="c-val">98</span>,<span class="c-val">242</span>
-<span class="c-str">2024-02-01</span>,<span class="c-val">P001</span>,<span class="c-val">135</span>,<span class="c-val">380</span>,<span class="c-val">110</span>,<span class="c-val">270</span>
-<span class="c-str">2024-01-01</span>,<span class="c-val">P002</span>,<span class="c-val">88</span>,<span class="c-val">210</span>,<span class="c-val">72</span>,<span class="c-val">138</span></pre>
+        <pre><span class="c-key">week_start</span>,<span class="c-key">store_name</span>,<span class="c-key">units_sold</span>,<span class="c-key">avg_price</span>,<span class="c-key">promo_flag</span>
+<span class="c-str">2024-01-01</span>,<span class="c-val">north</span>,<span class="c-val">108</span>,<span class="c-val">15.45</span>,<span class="c-val">no</span>
+<span class="c-str">2024-01-08</span>,<span class="c-val">north</span>,<span class="c-val">120</span>,<span class="c-val">16.24</span>,<span class="c-val">yes</span>
+<span class="c-str">2024-01-01</span>,<span class="c-val">south</span>,<span class="c-val">88</span>,<span class="c-val">12.10</span>,<span class="c-val">no</span></pre>
       </div>
       <div class="warn-block">
         <div class="warn-icon">⚠️</div>
         <div class="warn-text">
           <strong>Important</strong>
-          Each product needs data for several months so the model can learn meaningful patterns.
+          Each series (or the whole file, if you don't have a grouping column) needs
+          data across several time periods so the model can learn meaningful patterns.
+          If auto-detection picks the wrong column — e.g. a CSV with several
+          "purchase-ish" columns — pass <code>date_column</code>,
+          <code>group_column</code>, and/or <code>target_column</code> as query
+          params on <code>/train</code> to pin them explicitly. Whatever columns
+          get detected (or set) at training time are the ones your
+          <code>/forecast</code> uploads need to match afterward.
         </div>
       </div>
     </div>
@@ -671,11 +674,13 @@
 
       <div class="resp-block">
         <div class="resp-label">Response — CSV Download</div>
-        <pre style="padding:0;background:transparent;font-size:11px;"><span class="c-key">product_id</span>,<span class="c-key">forecast_month</span>,<span class="c-key">predicted_purchases</span>
-<span class="c-val">P001</span>,<span class="c-str">2025-01</span>,<span class="c-val">142.50</span>
-<span class="c-val">P001</span>,<span class="c-str">2025-02</span>,<span class="c-val">158.30</span>
-<span class="c-val">P002</span>,<span class="c-str">2025-01</span>,<span class="c-val">96.00</span>
-<span class="c-val">P002</span>,<span class="c-str">2025-02</span>,<span class="c-val">103.75</span></pre>
+        <pre style="padding:0;background:transparent;font-size:11px;"><span class="c-key">forecast_period</span>,<span class="c-key">predicted_value</span>,<span class="c-key">store_name</span>
+<span class="c-str">2025-01</span>,<span class="c-val">142.50</span>,<span class="c-val">north</span>
+<span class="c-str">2025-02</span>,<span class="c-val">158.30</span>,<span class="c-val">north</span>
+<span class="c-str">2025-01</span>,<span class="c-val">96.00</span>,<span class="c-val">south</span></pre>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;">
+          The grouping column (here <code>store_name</code>) only appears if your training CSV had one.
+        </div>
       </div>
 
       <div class="warn-block">

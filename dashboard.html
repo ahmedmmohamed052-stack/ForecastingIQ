@@ -226,7 +226,7 @@ tr:hover td{background:rgba(124,58,255,.04);}
         <div id="plans-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px;"></div>
       </div>
     </div>
- 
+
     <!-- MAIN PANELS -->
     <div class="panels">
       <!-- TRAIN -->
@@ -433,7 +433,8 @@ async function fetchBillingStatus() {
     } else if (d.status === "active") {
       box.className = "status-box sb-idle";
       const u = d.usage || {};
-      box.innerHTML = `<span class="sb-icon">✅</span><span>Plan: <strong>${d.plan}</strong> · Renews: <strong>${new Date(d.expires_at).toLocaleDateString()}</strong><br>
+      const trialTag = d.is_trial ? ' <span style="opacity:.7">(free trial)</span>' : '';
+      box.innerHTML = `<span class="sb-icon">✅</span><span>Plan: <strong>${d.plan}</strong>${trialTag} · Renews: <strong>${new Date(d.expires_at).toLocaleDateString()}</strong><br>
         <small style="opacity:.7">Trainings used: ${u.trainings_used ?? '—'}/${u.trainings_limit ?? '—'} · Forecasts used: ${u.forecasts_used ?? '—'}/${u.forecasts_limit ?? '—'}</small></span>`;
     } else {
       box.className = "status-box sb-idle";
@@ -446,50 +447,49 @@ async function fetchBillingStatus() {
   renderPlans();
 }
 
+// Cached from the last /billing/plans call so the Plan Details modal can
+// render instantly without a second round-trip when a card is clicked.
+let _plansCache = null;
+
 async function renderPlans() {
   const grid = document.getElementById('plans-grid');
   grid.innerHTML = '<div style="opacity:.6; font-size:12px;">Loading plans...</div>';
   try {
-    // Plan listing is public — no auth headers needed.
-    const res = await fetchWithTimeout(`${API}/billing/plans`, {}, 10000);
+    // Plan listing itself is public, but we send auth headers anyway (when
+    // we have them) so the server can tell us whether this account still
+    // has its free trial available.
+    let headers = {};
+    try { headers = await getAuthHeaders(); } catch (_) { /* not logged in — fine, trial_available just comes back null */ }
+
+    const res = await fetchWithTimeout(`${API}/billing/plans`, { headers }, 10000);
     const d = await res.json();
     if (!res.ok) throw new Error(d.detail || res.statusText);
+    _plansCache = d;
 
+    // Pricing → Select Plan → Plan Details → Subscribe → Payment.
+    // Every card links to the real, bookmarkable /plan-details route
+    // instead of opening a modal or calling the API directly — the plan
+    // id travels in the URL, so it can't get mixed up between plans.
     grid.innerHTML = d.plans.map(p => `
-      <div style="border:1px solid rgba(124,58,255,.2); border-radius:12px; padding:14px; background:rgba(255,255,255,.02);">
+      <div style="position:relative; border:1px solid ${p.most_popular ? 'rgba(124,58,255,.6)' : 'rgba(124,58,255,.2)'}; border-radius:12px; padding:14px; background:rgba(255,255,255,.02);">
+        ${p.most_popular ? `<div style="position:absolute; top:-10px; right:12px; background:linear-gradient(90deg,var(--accent1,#7c3aff),var(--accent2,#06b6d4)); color:#fff; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:3px 8px; border-radius:20px;">Most Popular</div>` : ''}
         <div style="font-size:12px; opacity:.7; text-transform:uppercase; letter-spacing:.06em;">${p.name}</div>
         <div style="font-size:22px; font-weight:700; margin:6px 0;">$${p.price_usd}<span style="font-size:11px; opacity:.6;">/mo</span></div>
         <div style="font-size:11px; opacity:.7; margin-bottom:10px;">Forecast up to ${p.max_forecast_months} months ahead</div>
-        <button class="btn-insights" style="width:100%; justify-content:center; margin:0;" onclick="subscribe('${p.id}')">Subscribe</button>
+        <a href="/plan-details?plan=${p.id}&mode=subscribe" class="btn-insights" style="width:100%; justify-content:center; margin:0 0 8px; text-decoration:none;">Subscribe</a>
+        ${d.trial_available === false
+          ? `<button class="btn-insights" style="width:100%; justify-content:center; margin:0; opacity:.5; cursor:not-allowed;" disabled title="You've already used your free trial">Trial used</button>`
+          : `<a href="/plan-details?plan=${p.id}&mode=trial" class="btn-insights" style="width:100%; justify-content:center; margin:0; text-decoration:none;">Start ${d.trial_duration_days}-day free trial</a>`
+        }
       </div>
     `).join('');
 
     if (!d.paymob_configured) {
       grid.innerHTML += `<div style="grid-column:1/-1; font-size:11px; opacity:.6; margin-top:6px;">
-        ⚠️ Payments aren't configured on the server yet (Paymob keys missing) — subscribing will show an error until that's set up.</div>`;
+        ⚠️ Payments aren't configured on the server yet (Paymob keys missing) — subscribing will show an error until that's set up. The free trial doesn't need Paymob and works either way.</div>`;
     }
   } catch (e) {
     grid.innerHTML = `<div style="color:#f87171; font-size:12px;">${e.message}</div>`;
-  }
-}
-
-async function subscribe(planId) {
-  try {
-    const headers = await getAuthHeaders();
-    const res = await fetchWithTimeout(`${API}/billing/subscribe`, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_id: planId }),
-    }, 15000);
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || res.statusText);
-
-    // Opens the Paymob checkout iframe in a new tab. After payment,
-    // Paymob's webhook activates the subscription automatically —
-    // come back and refresh this page to see it reflected.
-    window.open(d.iframe_url, '_blank');
-  } catch (e) {
-    alert("Couldn't start checkout: " + e.message);
   }
 }
 

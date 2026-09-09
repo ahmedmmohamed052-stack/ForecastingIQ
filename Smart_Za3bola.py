@@ -62,11 +62,29 @@ MODELS = {
 # =============================================================================
 # 🏋️  TRAIN — يُستدعى من main.py مع كل request
 # =============================================================================
-def train_on_df(df: pd.DataFrame) -> dict:
+def train_on_df(df: pd.DataFrame, schema: dict) -> dict:
     """
-    يأخذ DataFrame جاهز (بعد feature engineering) ويرجع bundle فيه:
-        model, lags, roll, feature_columns, results
+    يأخذ DataFrame خام + schema (من schema.detect_schema — date_col,
+    group_col, target_col, numeric_features, categorical_features)
+    ويرجع bundle فيه: model, lags, roll, feature_columns, schema, results.
+
+    Column-agnostic: works for ANY schema, not just the original
+    product_id / number_of_product_purchases shape. Lag & rolling features
+    are computed on `target_col`, grouped by `group_col` when there is one
+    (each group is forecast as its own series) — if there's no group_col,
+    the whole file is treated as a single series.
     """
+    date_col    = schema["date_col"]
+    group_col   = schema["group_col"]
+    target_col  = schema["target_col"]
+    num_extra   = schema["numeric_features"]
+    cat_extra   = list(schema["categorical_features"])
+    if group_col:
+        cat_extra = cat_extra + [group_col]
+
+    # A constant grouping key when the CSV is a single series, so all the
+    # groupby() calls below work unchanged either way.
+    group_key = group_col or "__single_series__"
 
     tscv    = TimeSeriesSplit(n_splits=5)
     results = []
@@ -75,30 +93,44 @@ def train_on_df(df: pd.DataFrame) -> dict:
         for ROLL in ROLLING_OPTIONS:
 
             temp_df = df.copy()
+            if group_col is None:
+                temp_df[group_key] = "all"
 
             # ── Lag features ──────────────────────────────────────────────
             for lag in range(1, LAGS + 1):
                 temp_df[f"lag_{lag}"] = (
-                    temp_df.groupby("product_id")["number_of_product_purchases"]
-                    .shift(lag)
+                    temp_df.groupby(group_key)[target_col].shift(lag)
                 )
 
             # ── Rolling features ──────────────────────────────────────────
             temp_df[f"rolling_mean_{ROLL}"] = (
-                temp_df.groupby("product_id")["number_of_product_purchases"]
+                temp_df.groupby(group_key)[target_col]
                 .rolling(ROLL).mean()
                 .reset_index(0, drop=True)
             )
             temp_df[f"rolling_std_{ROLL}"] = (
-                temp_df.groupby("product_id")["number_of_product_purchases"]
+                temp_df.groupby(group_key)[target_col]
                 .rolling(ROLL).std()
                 .reset_index(0, drop=True)
             )
 
-            temp_df = temp_df.dropna().reset_index(drop=True)
+            lag_roll_cols = [f"lag_{i}" for i in range(1, LAGS + 1)] + [
+                f"rolling_mean_{ROLL}", f"rolling_std_{ROLL}",
+            ]
+            # Only require the numeric model inputs + target to be non-null —
+            # categorical extras keep their own missing-value bucket instead
+            # of dropping rows.
+            for c in cat_extra:
+                temp_df[c] = temp_df[c].fillna("missing").astype(str)
+            temp_df = temp_df.dropna(
+                subset=lag_roll_cols + num_extra + [target_col]
+            ).reset_index(drop=True)
 
-            x = temp_df.drop(columns=["number_of_product_purchases", "month"])
-            y = temp_df["number_of_product_purchases"]
+            drop_cols = [target_col, date_col]
+            if group_col is None:
+                drop_cols.append(group_key)
+            x = temp_df.drop(columns=drop_cols)
+            y = temp_df[target_col]
 
             split   = int(len(x) * 0.8)
             x_train = x.iloc[:split]
@@ -106,7 +138,7 @@ def train_on_df(df: pd.DataFrame) -> dict:
             y_train = y.iloc[:split]
             y_val   = y.iloc[split:]
 
-            if len(y_val) <= 1:
+            if len(y_val) <= 1 or len(y_train) < 2:
                 continue
 
             # ── Baseline RMSE (naive lag-1) ───────────────────────────────
@@ -117,21 +149,22 @@ def train_on_df(df: pd.DataFrame) -> dict:
             # ── Preprocessor ─────────────────────────────────────────────
             num_features = (
                 [f"lag_{i}" for i in range(1, LAGS + 1)]
-                + [f"rolling_mean_{ROLL}", f"rolling_std_{ROLL}",
-                   "conversion_rate", "cart_drop_rate"]
+                + [f"rolling_mean_{ROLL}", f"rolling_std_{ROLL}"]
+                + num_extra
             )
+            cat_features = cat_extra
 
             numerical_pipeline = Pipeline([
                 ("imputer", IterativeImputer(random_state=0)),
                 ("scaler",  StandardScaler()),
             ])
-            categorical_pipeline = Pipeline([
-                ("onehot", OneHotEncoder(handle_unknown="ignore")),
-            ])
-            preprocessor = ColumnTransformer([
-                ("num", numerical_pipeline,   num_features),
-                ("cat", categorical_pipeline, ["product_id"]),
-            ])
+            transformers = [("num", numerical_pipeline, num_features)]
+            if cat_features:
+                categorical_pipeline = Pipeline([
+                    ("onehot", OneHotEncoder(handle_unknown="ignore")),
+                ])
+                transformers.append(("cat", categorical_pipeline, cat_features))
+            preprocessor = ColumnTransformer(transformers)
 
             # ── Grid search per model ─────────────────────────────────────
             for model_name, model_info in MODELS.items():
@@ -164,6 +197,13 @@ def train_on_df(df: pd.DataFrame) -> dict:
                     "feature_cols":  x_train.columns.tolist(),
                 })
 
+    if not results:
+        raise ValueError(
+            "Not enough historical rows per series to train — need at least "
+            f"~{max(LAG_OPTIONS) + max(ROLLING_OPTIONS) + 5} rows for the "
+            "series with the least data."
+        )
+
     # ── Pick best configuration ───────────────────────────────────────────
     results_df = pd.DataFrame(results)
     results_df["composite_score"] = (
@@ -179,6 +219,7 @@ def train_on_df(df: pd.DataFrame) -> dict:
         "lags":            int(best_row["lags"]),
         "roll":            int(best_row["rolling"]),
         "feature_columns": best_row["feature_cols"],
+        "schema":          schema,
         "results": (
             results_df
             .drop(columns=["estimator", "feature_cols"])

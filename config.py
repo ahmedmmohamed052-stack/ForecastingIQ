@@ -71,38 +71,153 @@ def _get_float(name: str, default: float) -> float:
 PLANS = {
     "test_plan": {
         # TEMPORARY — for verifying the real Paymob checkout → webhook →
-        # subscription-activation flow end-to-end without paying $30+ per
-        # test. Remove this before real launch so customers never see it.
+        # subscription-activation flow end-to-end without paying full
+        # price. Remove this before real launch so customers never see it.
         "name": "Test Plan (remove before launch)",
         "price_usd": 0.50,
         "duration_days": 1,
+        "most_popular": False,
+        "tagline": "Internal — for testing the Paymob checkout flow only.",
         "max_forecast_months": 3,
+        "max_historical_months": 12,
+        "max_data_rows_per_month": 50_000,
         "max_trainings": 2,
-        "max_forecasts": 5,
+        "max_forecast_points_per_month": 10_000,
+        "product_level_forecasting": True,
+        "advanced_forecasting": False,
+        "features": ["Dashboard", "Data export"],
     },
-    "forecast_3mo": {
-        "name": "3-Month Forecast",
-        "price_usd": 30.0,
+    "starter": {
+        "name": "Starter",
+        "price_usd": 29.0,
         "duration_days": 30,
+        "most_popular": False,
+        "tagline": "For a single store or product line getting started with forecasting.",
         "max_forecast_months": 3,
+        "max_historical_months": 12,
+        "max_data_rows_per_month": 50_000,
         "max_trainings": 10,
-        "max_forecasts": 100,
+        "max_forecast_points_per_month": 10_000,
+        "product_level_forecasting": True,
+        "advanced_forecasting": False,
+        "features": [
+            "Up to 50K data rows/month",
+            "10 training runs/month",
+            "10K forecasted data points/month",
+            "Up to 3-month forecast horizon",
+            "Up to 12 months of historical data",
+            "Product-level forecasting",
+            "Dashboard",
+            "Data export",
+        ],
     },
-    "forecast_6mo": {
-        "name": "6-Month Forecast",
-        "price_usd": 80.0,
+    "growth": {
+        "name": "Growth",
+        "price_usd": 79.0,
         "duration_days": 30,
-        "max_forecast_months": 6,
-        "max_trainings": 25,
-        "max_forecasts": 300,
-    },
-    "forecast_12mo": {
-        "name": "12-Month Forecast",
-        "price_usd": 120.0,
-        "duration_days": 30,
+        "most_popular": True,
+        "tagline": "For growing businesses forecasting across many products or locations.",
         "max_forecast_months": 12,
-        "max_trainings": 60,
-        "max_forecasts": 800,
+        "max_historical_months": 36,
+        "max_data_rows_per_month": 500_000,
+        "max_trainings": 50,
+        "max_forecast_points_per_month": 100_000,
+        "product_level_forecasting": True,
+        "advanced_forecasting": True,
+        "features": [
+            "Up to 500K data rows/month",
+            "50 training runs/month",
+            "100K forecasted data points/month",
+            "Up to 12-month forecast horizon",
+            "Up to 36 months of historical data",
+            "Advanced forecasting capabilities",
+            "Data export",
+        ],
+    },
+    "scale": {
+        "name": "Scale",
+        "price_usd": 149.0,
+        "duration_days": 30,
+        "most_popular": False,
+        "tagline": "For high-volume operations that need long-horizon, large-scale forecasting.",
+        "max_forecast_months": 24,
+        "max_historical_months": 60,
+        "max_data_rows_per_month": 2_000_000,
+        "max_trainings": 200,
+        "max_forecast_points_per_month": 500_000,
+        "product_level_forecasting": True,
+        "advanced_forecasting": True,
+        "features": [
+            "Up to 2M data rows/month",
+            "200 training runs/month",
+            "500K forecasted data points/month",
+            "Up to 24-month forecast horizon",
+            "60+ months of historical data",
+            "Advanced forecasting capabilities",
+            "Data export",
+        ],
+    },
+}
+
+# Detailed, customer-friendly explanations for the Plan Details page. Keyed
+# by the generic concept (not per-plan) — the frontend fills in each plan's
+# actual numbers around this copy so the wording never has to be duplicated
+# per plan and stays in sync automatically if a limit changes above.
+PLAN_FEATURE_EXPLANATIONS = {
+    "data_rows": {
+        "title": "Data rows/month",
+        "body": (
+            "A data row is one line of your uploaded CSV — for example, one "
+            "product's sales for one month. Your monthly limit is the total "
+            "number of rows you can upload across all your training and "
+            "forecast files combined."
+        ),
+    },
+    "trainings": {
+        "title": "Training runs/month",
+        "body": (
+            "A training run is when ForecastingIQ builds (or rebuilds) your "
+            "forecasting model from your historical data. You'll typically "
+            "use one whenever you add new historical data or want the model "
+            "to learn from more recent trends."
+        ),
+    },
+    "forecast_points": {
+        "title": "Forecasted data points/month",
+        "body": (
+            "A forecasted data point is one predicted future value — for "
+            "example, one product's predicted sales for one future month. "
+            "Forecasting 500 products for 12 future months produces 6,000 "
+            "forecasted data points."
+        ),
+    },
+    "forecast_horizon": {
+        "title": "Forecast horizon",
+        "body": "How far into the future you can generate forecasts in a single run.",
+    },
+    "historical_data": {
+        "title": "Historical data",
+        "body": "How much past data ForecastingIQ can use to learn patterns and generate your forecasts.",
+    },
+    "product_level": {
+        "title": "Product-level forecasting",
+        "body": "Get a separate forecast for each individual product, store, or category instead of just one combined total.",
+    },
+    "dashboard": {
+        "title": "Dashboard",
+        "body": "A visual dashboard where you can review your forecasts, track model accuracy, and manage your account.",
+    },
+    "data_export": {
+        "title": "Data export",
+        "body": "Download your forecasting results as a CSV file to use in spreadsheets, reports, or other business tools.",
+    },
+    "advanced_forecasting": {
+        "title": "Advanced forecasting capabilities",
+        "body": (
+            "ForecastingIQ automatically tries several forecasting techniques on your "
+            "data and additional input signals (like price or promotions) to pick "
+            "the most accurate one for your business — no configuration needed."
+        ),
     },
 }
 
@@ -177,30 +292,52 @@ class Settings:
     def dev_bypass_enabled(self) -> bool:
         return bool(self.DEV_ACCESS_PASSWORD) and not self.is_production
 
-    # ── Paymob (payment gateway) ────────────────────────────────────────
+    # ── Paymob (payment gateway — Egypt + Gulf/Middle East) ──────────────
     # All blank until you have real credentials from your Paymob dashboard.
     # See paymob.py — every function checks `settings.paymob_configured`
     # and returns a clear "not configured yet" error instead of crashing,
     # so the rest of the app works fine without these.
+    #
+    # Paymob operates (and settles) in several MENA markets, each under its
+    # own currency and its own INTEGRATION_ID on your Paymob account — you
+    # need one integration per currency you want to accept, even though
+    # it's a single merchant account. Ask your Paymob account
+    # manager/dashboard for the integration id for each currency you plan
+    # to support; leave a country's PAYMOB_INTEGRATION_ID_<CODE> blank if
+    # you're not accepting that currency yet, and it's simply hidden from
+    # the country picker on the Plan Details page instead of erroring.
     PAYMOB_API_KEY: str = os.getenv("PAYMOB_API_KEY", "")
-    PAYMOB_INTEGRATION_ID: str = os.getenv("PAYMOB_INTEGRATION_ID", "")
     PAYMOB_IFRAME_ID: str = os.getenv("PAYMOB_IFRAME_ID", "")
     PAYMOB_HMAC_SECRET: str = os.getenv("PAYMOB_HMAC_SECRET", "")
 
-    # Plans are priced in USD above (matches how you think about pricing),
-    # but Paymob (Egyptian merchant accounts) settles in EGP. Set your
-    # actual conversion rate here — check your Paymob dashboard / bank for
-    # what you're actually being credited, this is NOT a live exchange
-    # rate lookup. Update it whenever the rate meaningfully moves.
-    USD_TO_EGP_RATE: float = _get_float("USD_TO_EGP_RATE", 49.0)
+    # country code -> (currency, integration_id env var, USD conversion rate).
+    # Rates are NOT a live lookup — set them from your bank/Paymob dashboard
+    # and update manually whenever they meaningfully move, same as before.
+    PAYMOB_COUNTRIES: dict = {
+        "EG": {"label": "Egypt",         "currency": "EGP", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_EG", os.getenv("PAYMOB_INTEGRATION_ID", "")), "usd_rate": _get_float("USD_TO_EGP_RATE", 49.0)},
+        "SA": {"label": "Saudi Arabia",  "currency": "SAR", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_SA", ""), "usd_rate": _get_float("USD_TO_SAR_RATE", 3.75)},
+        "AE": {"label": "UAE",           "currency": "AED", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_AE", ""), "usd_rate": _get_float("USD_TO_AED_RATE", 3.67)},
+        "OM": {"label": "Oman",          "currency": "OMR", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_OM", ""), "usd_rate": _get_float("USD_TO_OMR_RATE", 0.385)},
+        "KW": {"label": "Kuwait",        "currency": "KWD", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_KW", ""), "usd_rate": _get_float("USD_TO_KWD_RATE", 0.307)},
+        "QA": {"label": "Qatar",         "currency": "QAR", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_QA", ""), "usd_rate": _get_float("USD_TO_QAR_RATE", 3.64)},
+        "BH": {"label": "Bahrain",       "currency": "BHD", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_BH", ""), "usd_rate": _get_float("USD_TO_BHD_RATE", 0.376)},
+    }
 
     @property
     def paymob_configured(self) -> bool:
-        return bool(
-            self.PAYMOB_API_KEY
-            and self.PAYMOB_INTEGRATION_ID
-            and self.PAYMOB_IFRAME_ID
-        )
+        # "Configured" overall just means Egypt works (the original,
+        # always-expected setup) — individual Gulf countries light up
+        # independently as you add their integration ids, checked per
+        # country via paymob_countries_available below.
+        return bool(self.PAYMOB_API_KEY and self.PAYMOB_IFRAME_ID and self.PAYMOB_COUNTRIES["EG"]["integration_id"])
+
+    @property
+    def paymob_countries_available(self) -> dict:
+        """Only the countries that actually have an integration id set —
+        what the Plan Details page's country picker should offer."""
+        if not (self.PAYMOB_API_KEY and self.PAYMOB_IFRAME_ID):
+            return {}
+        return {code: info for code, info in self.PAYMOB_COUNTRIES.items() if info["integration_id"]}
 
     # ── Rate limiting ────────────────────────────────────────────────────
     # Protects /train and /forecast from being hammered (by a bot, a bug in

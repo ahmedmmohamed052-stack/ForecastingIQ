@@ -26,9 +26,22 @@ from firebase_admin import firestore
 
 from config import PLANS
 
+# ── Free trial ────────────────────────────────────────────────────────────
+# 14 days, full access to whichever plan the user picks, no card required.
+# One trial per account EVER — not per plan. Once used (on any plan), the
+# user doc's "trial_used" flag is set permanently and start_trial() refuses
+# every later attempt, even for a different plan_id.
+TRIAL_DURATION_DAYS = 14
+
 
 class QuotaExceeded(Exception):
     def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+class TrialAlreadyUsed(Exception):
+    def __init__(self, message: str = "You've already used your free trial. Choose a plan at /billing/plans to subscribe."):
         self.message = message
         super().__init__(message)
 
@@ -82,26 +95,98 @@ def activate_subscription(db, uid: str, plan_id: str, order_id: str = None) -> d
     # Fresh usage counters for the new cycle.
     db.collection("users").document(uid).collection("usage").document(cycle_id).set({
         "trainings_used": 0,
-        "forecasts_used": 0,
+        "data_rows_used": 0,
+        "forecast_points_used": 0,
         "cycle_started_at": now,
     })
 
     return {"plan": plan_id, "expires_at": expires_at.isoformat(), "cycle_id": cycle_id}
 
 
+def has_used_trial(db, uid: str) -> bool:
+    """Global, cross-plan check — True once the user has ever started a trial."""
+    doc = db.collection("users").document(uid).get()
+    data = doc.to_dict() if doc.exists else {}
+    return bool(data.get("trial_used"))
+
+
+def start_trial(db, uid: str, plan_id: str) -> dict:
+    """
+    Activates `plan_id` for TRIAL_DURATION_DAYS at no charge, no card
+    required. Uses the same Firestore transaction pattern as
+    activate_subscription() but is gated by a permanent, account-wide
+    "trial_used" flag: once any plan's trial has been started, every
+    later call — for this plan or any other — raises TrialAlreadyUsed.
+    """
+    if plan_id not in PLANS:
+        raise ValueError(f"Unknown plan_id: {plan_id}")
+
+    user_ref = db.collection("users").document(uid)
+
+    @firestore.transactional
+    def _start(transaction):
+        snapshot = user_ref.get(transaction=transaction)
+        data = snapshot.to_dict() if snapshot.exists else {}
+        if data.get("trial_used"):
+            raise TrialAlreadyUsed()
+
+        plan = PLANS[plan_id]
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=TRIAL_DURATION_DAYS)
+        cycle_id = uuid.uuid4().hex[:12]
+
+        transaction.set(user_ref, {
+            "plan": plan_id,
+            "status": "active",
+            "started_at": now,
+            "expires_at": expires_at,
+            "cycle_id": cycle_id,
+            "is_trial": True,
+            "trial_used": True,
+            "trial_plan_id": plan_id,
+            "trial_started_at": now,
+        }, merge=True)
+
+        usage_ref = user_ref.collection("usage").document(cycle_id)
+        transaction.set(usage_ref, {
+            "trainings_used": 0,
+            "data_rows_used": 0,
+            "forecast_points_used": 0,
+            "cycle_started_at": now,
+        })
+
+        return {"plan": plan_id, "expires_at": expires_at.isoformat(), "cycle_id": cycle_id}
+
+    transaction = db.transaction()
+    return _start(transaction)
+
+
 def get_usage(db, uid: str, cycle_id: str) -> dict:
     doc = db.collection("users").document(uid).collection("usage").document(cycle_id).get()
     if not doc.exists:
-        return {"trainings_used": 0, "forecasts_used": 0}
-    return doc.to_dict()
+        return {"trainings_used": 0, "data_rows_used": 0, "forecast_points_used": 0}
+    data = doc.to_dict()
+    data.setdefault("trainings_used", 0)
+    data.setdefault("data_rows_used", 0)
+    data.setdefault("forecast_points_used", 0)
+    return data
 
 
-def check_and_increment_quota(db, uid: str, kind: str) -> None:
+# kind -> (usage field name, plan limit field name, human label)
+QUOTA_KINDS = {
+    "training":        ("trainings_used",       "max_trainings",                  "training run"),
+    "data_rows":       ("data_rows_used",        "max_data_rows_per_month",        "data row"),
+    "forecast_points": ("forecast_points_used",  "max_forecast_points_per_month",  "forecasted data point"),
+}
+
+
+def check_and_increment_quota(db, uid: str, kind: str, amount: int = 1) -> None:
     """
     Raises QuotaExceeded (caller turns this into HTTP 402/403) if the user
-    has no active subscription, or has used up their plan's allowance for
-    `kind` ("training" or "forecast") this billing cycle. Otherwise
-    atomically increments the counter and returns.
+    has no active subscription, or `amount` more of `kind`
+    ("training" | "data_rows" | "forecast_points") would exceed their
+    plan's monthly allowance. Otherwise atomically increments the counter
+    by `amount` and returns.
     """
     sub = get_subscription(db, uid)
 
@@ -112,25 +197,24 @@ def check_and_increment_quota(db, uid: str, kind: str) -> None:
         )
 
     plan = PLANS[sub["plan"]]
+    field, limit_field, label = QUOTA_KINDS[kind]
+    limit = plan[limit_field]
     cycle_id = sub["cycle_id"]
     usage_ref = db.collection("users").document(uid).collection("usage").document(cycle_id)
-
-    field = "trainings_used" if kind == "training" else "forecasts_used"
-    limit_field = "max_trainings" if kind == "training" else "max_forecasts"
-    limit = plan[limit_field]
 
     @firestore.transactional
     def _increment(transaction):
         snapshot = usage_ref.get(transaction=transaction)
         current = snapshot.to_dict().get(field, 0) if snapshot.exists else 0
-        if current >= limit:
+        if current + amount > limit:
+            remaining = max(0, limit - current)
             raise QuotaExceeded(
-                f"You've used all {limit} {kind} runs included in your "
-                f"'{plan['name']}' plan for this billing period. It renews "
-                f"on {sub['expires_at'].strftime('%Y-%m-%d')}, or upgrade "
+                f"This would use {amount} {label}s, but your '{plan['name']}' plan "
+                f"only has {remaining} left this billing period (limit: {limit}). "
+                f"It renews on {sub['expires_at'].strftime('%Y-%m-%d')}, or upgrade "
                 f"your plan at /billing/plans."
             )
-        transaction.set(usage_ref, {field: current + 1}, merge=True)
+        transaction.set(usage_ref, {field: current + amount}, merge=True)
 
     transaction = db.transaction()
     _increment(transaction)

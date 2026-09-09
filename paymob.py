@@ -81,9 +81,17 @@ async def get_payment_key(
     order_id: int,
     amount_cents: int,
     billing_email: str,
+    integration_id: str,
     currency: str = "EGP",
+    country: str = "N/A",
 ) -> str:
-    """Step 3: request the payment token used to open the iframe."""
+    """Step 3: request the payment token used to open the iframe.
+    `integration_id` and `currency` must match one of your Paymob account's
+    configured integrations (one per currency/country — see
+    config.PAYMOB_COUNTRIES). Passing the customer's billing `country` (an
+    ISO 3166-1 alpha-2 code, e.g. "SA", "AE") helps Paymob's fraud/3D-Secure
+    checks recognize a legitimate Gulf cardholder instead of just assuming
+    Egypt."""
     _require_configured()
     billing_data = {
         "email": billing_email or "customer@example.com",
@@ -92,7 +100,7 @@ async def get_payment_key(
         "phone_number": "N/A",
         "apartment": "N/A", "floor": "N/A", "street": "N/A",
         "building": "N/A", "shipping_method": "N/A", "postal_code": "N/A",
-        "city": "N/A", "country": "N/A", "state": "N/A",
+        "city": "N/A", "country": country, "state": "N/A",
     }
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
@@ -104,22 +112,34 @@ async def get_payment_key(
                 "order_id": order_id,
                 "billing_data": billing_data,
                 "currency": currency,
-                "integration_id": settings.PAYMOB_INTEGRATION_ID,
+                "integration_id": integration_id,
             },
         )
         resp.raise_for_status()
         return resp.json()["token"]
 
 
-async def create_payment_intent(amount_cents: int, billing_email: str, currency: str = "EGP") -> dict:
+async def create_payment_intent(
+    amount_cents: int,
+    billing_email: str,
+    integration_id: str,
+    currency: str = "EGP",
+    country: str = "N/A",
+) -> dict:
     """
     One-shot helper: runs all 3 Paymob steps and returns the iframe URL
-    the frontend should redirect the user to.
+    the frontend should redirect the user to. `integration_id` and
+    `currency` select which of your Paymob account's country/currency
+    integrations to charge through — see config.PAYMOB_COUNTRIES and
+    main.py's /billing/subscribe, which looks these up from the
+    customer's chosen country.
     """
     _require_configured()
     auth_token = await get_auth_token()
     order_id = await create_order(auth_token, amount_cents, currency)
-    payment_token = await get_payment_key(auth_token, order_id, amount_cents, billing_email, currency)
+    payment_token = await get_payment_key(
+        auth_token, order_id, amount_cents, billing_email, integration_id, currency, country
+    )
     iframe_url = (
         f"https://accept.paymob.com/api/acceptance/iframes/"
         f"{settings.PAYMOB_IFRAME_ID}?payment_token={payment_token}"

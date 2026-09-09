@@ -22,7 +22,7 @@ from typing import Optional
 # ⚙️ Central config — see config.py. Everything environment-dependent
 # (Firebase key path, CORS, dev password, Paymob keys, quick-train mode)
 # is read from there so this file never hardcodes anything.
-from config import settings, PLANS
+from config import settings, PLANS, PLAN_FEATURE_EXPLANATIONS
 
 # 📋 Logging + optional Sentry error tracking — set up before anything else
 # so every module below can just do logging.getLogger("forecastiq").
@@ -33,13 +33,16 @@ logger = setup_logging()
 import firebase_admin
 from firebase_admin import credentials, auth, firestore
 
-# 💳 Paymob (blank/inactive until keys are set in .env — see paymob.py)
+# 💳 Paymob (blank/inactive until keys are set in .env — see paymob.py).
+# Covers Egypt plus Gulf/MENA countries (Saudi Arabia, UAE, Oman, Kuwait,
+# Qatar, Bahrain) — one Paymob integration per currency, see
+# config.PAYMOB_COUNTRIES.
 import paymob
 from paymob import PaymobNotConfigured
 
 # 💰 Subscriptions & usage quotas
 import billing
-from billing import QuotaExceeded
+from billing import QuotaExceeded, TrialAlreadyUsed
 
 # 🚦 Rate limiting (independent of subscription quotas)
 from ratelimit import enforce_train_rate_limit, enforce_forecast_rate_limit
@@ -47,6 +50,9 @@ from ratelimit import enforce_train_rate_limit, enforce_forecast_rate_limit
 # 🏋️ Background training queue (so /train never blocks a request)
 import jobs
 from jobs import TrainingJobQueue, JobStatus
+
+# 🧬 Automatic column detection so /train and /forecast work with any CSV
+import schema
 
 
 # =============================================================================
@@ -216,16 +222,19 @@ def save_forecast_to_firestore(
     metrics: dict,
     preds_df: pd.DataFrame,
     historical_df: pd.DataFrame,
+    sch: dict,
 ):
     """
     يحفظ نتيجة الـ forecast كـ document جديد تحت:
     users/{uid}/forecasts/{auto_id}
     بيحتوي الـ metrics + الـ predictions + نسخة خفيفة من الـ historical data
-    (month, product_id, number_of_product_purchases) عشان insights.html يقدر
-    يبني الصفحة من Firestore لوحده من غير ما يحتاج يرجع يرفع الملف الأصلي تاني.
+    (date/group/target columns من الـ schema المحفوظة) عشان insights.html
+    يقدر يبني الصفحة من Firestore لوحده من غير ما يحتاج يرجع يرفع الملف
+    الأصلي تاني. Column-agnostic — يشتغل مع أي schema تم اكتشافه وقت الـ train.
     """
-    hist_snapshot = historical_df[["month", "product_id", "number_of_product_purchases"]].copy()
-    hist_snapshot["month"] = hist_snapshot["month"].dt.strftime("%Y-%m")
+    snapshot_cols = [sch["date_col"], sch["target_col"]] + ([sch["group_col"]] if sch["group_col"] else [])
+    hist_snapshot = historical_df[snapshot_cols].copy()
+    hist_snapshot[sch["date_col"]] = hist_snapshot[sch["date_col"]].dt.strftime("%Y-%m")
 
     doc_ref = db.collection("users").document(uid).collection("forecasts").document()
     doc_ref.set({
@@ -236,6 +245,7 @@ def save_forecast_to_firestore(
         "train_rmse":    metrics.get("train_rmse"),
         "val_rmse":      metrics.get("val_rmse"),
         "baseline_rmse": metrics.get("baseline_rmse"),
+        "schema":        sch,
         "predictions":   preds_df.to_dict(orient="records"),
         "historical":    hist_snapshot.to_dict(orient="records"),
     })
@@ -282,6 +292,11 @@ FRONTEND_PAGES = {
     "/dashboard": "dashboard.html",
     "/about": "about.html",
     "/guide": "user_guide.html",
+    # Real, linkable/bookmarkable route for the pricing flow's "Plan Details"
+    # step — reads ?plan=starter&mode=subscribe|trial from the URL itself
+    # (see plan-details.html), so Pricing → Select Plan → Plan Details →
+    # Subscribe → Payment is now actual navigation, not a modal overlay.
+    "/plan-details": "plan-details.html",
 }
 
 for route_path, filename in FRONTEND_PAGES.items():
@@ -383,6 +398,23 @@ def verify_user(
             status_code=401,
             detail=f"Authentication failed: {e}"
         )
+
+
+def _optional_user(
+    credential: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_dev_password: Optional[str] = Header(default=None, alias="X-Dev-Password"),
+    dev_key: Optional[str] = Query(default=None),
+) -> Optional[dict]:
+    """Same as verify_user, but returns None instead of raising 401 when no
+    credentials are supplied — for endpoints (like /billing/plans) that stay
+    public but personalize their response when the caller happens to be
+    logged in."""
+    if credential is None and not (x_dev_password or dev_key):
+        return None
+    try:
+        return verify_user(credential, x_dev_password, dev_key)
+    except HTTPException:
+        return None
 
 
 # =============================================================================
@@ -502,19 +534,6 @@ async def custom_docs():
 
 
 # =============================================================================
-# CONSTANTS
-# =============================================================================
-REQUIRED_COLUMNS = {
-    "month",
-    "product_id",
-    "number_of_product_purchases",
-    "number_of_times_added_to_cart",
-    "number_of_times_add_followed_by_purchase",
-    "number_of_times_add_followed_by_no_purchase",
-}
-
-
-# =============================================================================
 # HELPERS
 # =============================================================================
 async def read_upload_within_limit(file: UploadFile) -> bytes:
@@ -543,38 +562,49 @@ async def read_upload_within_limit(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
-def validate_and_load(contents: bytes) -> pd.DataFrame:
+def load_csv(contents: bytes) -> pd.DataFrame:
+    """Parses the raw upload into a DataFrame — no assumption about its
+    columns. Column detection/validation happens afterwards, separately,
+    for /train (auto-detect + save a new schema) vs /forecast (validate
+    against the schema saved at training time)."""
     try:
         df = pd.read_csv(io.BytesIO(contents))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"CSV error: {exc}")
 
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        raise HTTPException(400, f"Missing columns: {sorted(missing)}")
+    if df.empty or len(df.columns) == 0:
+        raise HTTPException(400, "The CSV appears to be empty.")
 
-    df = df.drop_duplicates()
-    df["month"] = pd.to_datetime(df["month"], errors="coerce")
-    if df["month"].isna().any():
-        raise HTTPException(400, "Invalid dates in 'month' column")
-
-    return df.sort_values(["product_id", "month"]).reset_index(drop=True)
+    return df.drop_duplicates()
 
 
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+def prepare_for_schema(df: pd.DataFrame, sch: dict) -> pd.DataFrame:
+    """Coerces the date column to datetime and sorts the DataFrame by
+    (group_col, date_col) — shared by both /train (right after detecting a
+    new schema) and /forecast (against the schema saved with the model)."""
+    date_col, group_col = sch["date_col"], sch["group_col"]
+
     df = df.copy()
-    df["conversion_rate"] = (
-        df["number_of_times_add_followed_by_purchase"]
-        / df["number_of_times_added_to_cart"].replace(0, np.nan)
-    )
-    df["cart_drop_rate"] = (
-        df["number_of_times_add_followed_by_no_purchase"]
-        / df["number_of_times_added_to_cart"].replace(0, np.nan)
-    )
-    return df.drop(columns=[
-        "number_of_times_add_followed_by_purchase",
-        "number_of_times_add_followed_by_no_purchase",
-    ])
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    if df[date_col].isna().any():
+        raise HTTPException(400, f"Invalid/unparseable dates in column '{date_col}'")
+
+    sort_cols = [group_col, date_col] if group_col else [date_col]
+    return df.sort_values(sort_cols).reset_index(drop=True)
+
+
+def validate_upload_against_schema(df: pd.DataFrame, sch: dict) -> None:
+    """Raises a clear 400 if a /forecast upload doesn't have the columns
+    the saved model was trained on (it doesn't need to detect anything —
+    just confirm the expected columns are present)."""
+    required = [sch["date_col"], sch["target_col"]] + ([sch["group_col"]] if sch["group_col"] else [])
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            400,
+            f"This CSV is missing column(s) the trained model expects: {missing}. "
+            "Upload a file with the same columns you used for /train."
+        )
 
 
 FORECAST_HORIZON_OPTIONS = [3, 6, 9, 12]
@@ -583,45 +613,57 @@ def run_forecast(df: pd.DataFrame, bundle: dict, months: int = 3) -> pd.DataFram
     if months not in FORECAST_HORIZON_OPTIONS:
         raise ValueError(f"months must be one of {FORECAST_HORIZON_OPTIONS}")
 
-    model     = bundle["model"]
+    model  = bundle["model"]
+    sch    = bundle["schema"]
     BEST_LAGS = bundle["lags"]
     BEST_ROLL = bundle["roll"]
 
-    last_month      = df["month"].max()
-    forecast_months = [
-        last_month + pd.DateOffset(months=i)
-        for i in range(1, months + 1)
-    ]
+    date_col   = sch["date_col"]
+    group_col  = sch["group_col"]
+    target_col = sch["target_col"]
+    num_extra  = sch["numeric_features"]
+    cat_extra  = sch["categorical_features"]
+
+    group_key = group_col or "__single_series__"
+    df = df.copy()
+    if group_col is None:
+        df[group_key] = "all"
+
+    last_period      = df[date_col].max()
+    forecast_periods = [last_period + pd.DateOffset(months=i) for i in range(1, months + 1)]
 
     future_predictions = []
 
-    for product in df["product_id"].unique():
-        product_df = df[df["product_id"] == product]
-        if len(product_df) < BEST_LAGS:
+    for group_value in df[group_key].unique():
+        gdf = df[df[group_key] == group_value].sort_values(date_col)
+        if len(gdf) < BEST_LAGS:
             continue
 
-        hist       = product_df.iloc[-BEST_LAGS:]
-        lag_values = hist["number_of_product_purchases"].values.tolist()
-        conv_rate  = hist["conversion_rate"].iloc[-1]
-        drop_rate  = hist["cart_drop_rate"].iloc[-1]
+        hist       = gdf.iloc[-BEST_LAGS:]
+        lag_values = hist[target_col].values.tolist()
+        extra_num_vals = {c: hist[c].iloc[-1] for c in num_extra}
+        extra_cat_vals = {c: hist[c].iloc[-1] if c in hist.columns else "missing" for c in cat_extra if c != group_col}
 
         for step in range(months):
             row = {f"lag_{i+1}": lag_values[i] for i in range(BEST_LAGS)}
-            row["product_id"] = product
+            if group_col:
+                row[group_col] = group_value
 
             valid_lags = [v for v in lag_values[:BEST_ROLL] if not np.isnan(v)]
             row[f"rolling_mean_{BEST_ROLL}"] = np.mean(valid_lags) if valid_lags else np.nan
             row[f"rolling_std_{BEST_ROLL}"]  = np.std(valid_lags) if len(valid_lags) > 1 else np.nan
-            row["conversion_rate"] = conv_rate
-            row["cart_drop_rate"]  = drop_rate
+            row.update(extra_num_vals)
+            row.update(extra_cat_vals)
 
             pred = max(0.0, round(float(model.predict(pd.DataFrame([row]))[0]), 2))
 
-            future_predictions.append({
-                "product_id":          product,
-                "forecast_month":      forecast_months[step].strftime("%Y-%m"),
-                "predicted_purchases": pred,
-            })
+            result_row = {
+                "forecast_period": forecast_periods[step].strftime("%Y-%m"),
+                "predicted_value": pred,
+            }
+            if group_col:
+                result_row[group_col] = group_value
+            future_predictions.append(result_row)
 
             lag_values = [pred] + lag_values[:-1]
 
@@ -631,18 +673,21 @@ def run_forecast(df: pd.DataFrame, bundle: dict, months: int = 3) -> pd.DataFram
 # =============================================================================
 # 🏋️  TRAIN ENDPOINT — enqueues a background training job (never blocks)
 # =============================================================================
-async def _quota_check(user: dict, kind: str, months: int = None):
+async def _quota_check(user: dict, kind: str, months: int = None, amount: int = 1, increment: bool = True):
     """
     Skips billing entirely for the developer bypass account — see billing.py.
-    For kind="forecast", also enforces the requesting plan's forecast-horizon
-    ceiling (e.g. the $30 plan can only forecast up to 3 months ahead) —
-    checked BEFORE incrementing usage, so a rejected request never counts
-    against the user's quota.
+    For kind="forecast_points" with `months` given, also enforces the
+    requesting plan's forecast-horizon ceiling (e.g. Starter can only
+    forecast up to 3 months ahead) — checked BEFORE incrementing usage, so
+    a rejected request never counts against the user's quota.
+    Pass increment=False to only run the horizon check without touching
+    the usage counter (used for the early forecast-endpoint check, before
+    we know how many forecasted data points the request will produce).
     """
     if user.get("is_dev_bypass"):
         return
     try:
-        if kind == "forecast" and months is not None:
+        if kind == "forecast_points" and months is not None:
             sub = await asyncio.to_thread(billing.get_subscription, db, user["uid"])
             if not billing.is_subscription_active(sub):
                 raise QuotaExceeded(
@@ -658,11 +703,14 @@ async def _quota_check(user: dict, kind: str, months: int = None):
                     f"/billing/plans to forecast further out."
                 )
 
+        if not increment:
+            return
+
         # billing.check_and_increment_quota does a synchronous Firestore
         # transaction — run it in a thread so it can't stall the asyncio
         # event loop (and every other in-flight request) while it waits
         # on the network.
-        await asyncio.to_thread(billing.check_and_increment_quota, db, user["uid"], kind)
+        await asyncio.to_thread(billing.check_and_increment_quota, db, user["uid"], kind, amount)
     except QuotaExceeded as exc:
         raise HTTPException(402, str(exc))
 
@@ -673,17 +721,27 @@ async def _quota_check(user: dict, kind: str, months: int = None):
     response_description="A job_id to poll via GET /train/status/{job_id}",
 )
 async def train_endpoint(
-    file: UploadFile = File(..., description="CSV file with historical sales data"),
+    file: UploadFile = File(..., description="CSV file with historical data — any columns"),
+    date_column: Optional[str] = Query(None, description="Force which column is the date/time axis (auto-detected if omitted)"),
+    group_column: Optional[str] = Query(None, description="Force which column splits the data into separate series, e.g. product_id (auto-detected if omitted; omit entirely for a single series)"),
+    target_column: Optional[str] = Query(None, description="Force which numeric column to forecast (auto-detected if omitted)"),
     user=Depends(verify_user),
 ):
     """
     **Flow (now asynchronous):**
-    1. Validate the CSV and feature-engineer it (fast, done inline)
+    1. Validate the CSV — works with ANY columns. We auto-detect which
+       column is the date, which (if any) splits the data into separate
+       series (e.g. product_id), and which numeric column to forecast —
+       override any of those with date_column/group_column/target_column
+       if you want to pin them explicitly instead of relying on
+       auto-detection.
     2. Enqueue a training job — a bounded worker pool (see jobs.py) runs the
        actual grid search in the background, so this request returns
        immediately instead of holding the connection open for minutes
     3. Poll `GET /train/status/{job_id}` until status is "done" or "failed"
     4. Once done, the model is already saved — call `/forecast` normally
+       with a CSV that has the SAME columns (the detected schema is saved
+       with the model and reused, not re-detected, on /forecast)
 
     This also means one user (or a bot) can no longer take the server down
     by firing off many concurrent /train calls: only
@@ -701,17 +759,30 @@ async def train_endpoint(
 
     contents = await read_upload_within_limit(file)
 
-    # ── Validate + feature engineer inline (fast — no need to queue this part) ──
-    df = validate_and_load(contents)
-    df = engineer_features(df)
+    # ── Load + auto-detect schema + feature-prep inline (fast — no need to queue this part) ──
+    df = load_csv(contents)
+    try:
+        sch = schema.detect_schema(
+            df, date_column=date_column, group_column=group_column, target_column=target_column
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    df = prepare_for_schema(df, sch)
 
-    job_id = training_queue.submit(user["uid"], user.get("email", "unknown"), df)
-    logger.info(f"Training job {job_id} queued for uid={user['uid']}")
+    # ── Data-rows quota: counted from the actual uploaded CSV size ─────────
+    await _quota_check(user, "data_rows", amount=len(df))
+
+    job_id = training_queue.submit(user["uid"], user.get("email", "unknown"), df, sch)
+    logger.info(
+        f"Training job {job_id} queued for uid={user['uid']} "
+        f"(date_col={sch['date_col']}, group_col={sch['group_col']}, target_col={sch['target_col']})"
+    )
 
     return JSONResponse({
         "message": "Training job queued. Poll GET /train/status/{job_id} for progress.",
         "job_id": job_id,
         "status": JobStatus.QUEUED,
+        "detected_schema": sch,
     })
 
 
@@ -751,8 +822,10 @@ async def forecast_endpoint(
     # ── Rate limit: independent of subscription quota ───────────────────────
     enforce_forecast_rate_limit(user["uid"], per_minute=settings.RATE_LIMIT_FORECAST_PER_MINUTE)
 
-    # ── Subscription quota + forecast-horizon check ──────────────────────────
-    await _quota_check(user, "forecast", months=months)
+    # ── Subscription + forecast-horizon check (doesn't touch usage yet —
+    #    we don't know the exact forecasted-data-point count until the CSV
+    #    is loaded below) ──────────────────────────────────────────────────
+    await _quota_check(user, "forecast_points", months=months, increment=False)
 
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "Only CSV files allowed")
@@ -771,13 +844,21 @@ async def forecast_endpoint(
             "Please call POST /train first with your historical data."
         )
 
-    # ── 3. Load & validate ────────────────────────────────────────────────
-    df = validate_and_load(contents)
+    # ── 3. Validate against the schema saved at training time & prepare ────
+    df = load_csv(contents)
+    validate_upload_against_schema(df, bundle["schema"])
+    df = prepare_for_schema(df, bundle["schema"])
 
-    # ── 4. Feature engineering ────────────────────────────────────────────
-    df = engineer_features(df)
+    # ── Data-rows quota: the forecast upload's rows count too ──────────────
+    await _quota_check(user, "data_rows", amount=len(df))
 
-    # ── 5. Forecast ───────────────────────────────────────────────────────
+    # ── Forecasted-data-points quota: one point per (series × month) ───────
+    sch = bundle["schema"]
+    n_series = df[sch["group_col"]].nunique() if sch["group_col"] else 1
+    expected_points = n_series * months
+    await _quota_check(user, "forecast_points", amount=expected_points)
+
+    # ── 4. Forecast ───────────────────────────────────────────────────────
     preds_df = run_forecast(df, bundle, months=months)
 
     if preds_df.empty:
@@ -800,6 +881,7 @@ async def forecast_endpoint(
             metrics,
             preds_df,
             df,
+            bundle["schema"],
         )
     except Exception as fs_exc:
         logger.warning(f"Firestore save failed (non-fatal): {fs_exc}", exc_info=True)
@@ -943,12 +1025,17 @@ def get_forecast(forecast_id: str, user=Depends(verify_user)):
 # =============================================================================
 # 💰  SUBSCRIPTION / BILLING ENDPOINTS
 # =============================================================================
-# Three fixed plans (see config.PLANS: forecast_3mo / forecast_6mo /
-# forecast_12mo — priced by forecast horizon, not access duration). Paying via
+# Three tiered plans (see config.PLANS: starter / growth / scale). Paying via
 # Paymob activates the subscription automatically through the webhook —
 # INACTIVE until you add real Paymob credentials to .env (see paymob.py).
 @app.get("/billing/plans", summary="List available subscription plans")
-def list_plans():
+def list_plans(user: Optional[dict] = Depends(_optional_user)):
+    # trial_available is per-account (needs a logged-in user); anonymous
+    # callers just see the plans with trial_available omitted.
+    trial_available = None
+    if user and not user.get("is_dev_bypass"):
+        trial_available = not billing.has_used_trial(db, user["uid"])
+
     return JSONResponse({
         "plans": [
             {"id": plan_id, **plan}
@@ -959,7 +1046,16 @@ def list_plans():
             # whole entry from PLANS in config.py once testing is done.
             if plan_id != "test_plan" or not settings.is_production
         ],
+        # Customer-friendly copy for the Plan Details page — one entry per
+        # feature concept, filled in with each plan's own numbers client-side.
+        "feature_explanations": PLAN_FEATURE_EXPLANATIONS,
         "paymob_configured": settings.paymob_configured,
+        "paymob_countries": {
+            code: {"label": info["label"], "currency": info["currency"]}
+            for code, info in settings.paymob_countries_available.items()
+        },
+        "trial_duration_days": billing.TRIAL_DURATION_DAYS,
+        "trial_available": trial_available,
     })
 
 
@@ -978,6 +1074,8 @@ def billing_status(user=Depends(verify_user)):
         "plan": sub["plan"],
         "status": sub["status"] if active else "inactive",
         "expires_at": sub["expires_at"].isoformat() if sub.get("expires_at") else None,
+        "is_trial": bool(sub.get("is_trial")),
+        "trial_available": not billing.has_used_trial(db, user["uid"]),
     }
     if active:
         usage = billing.get_usage(db, user["uid"], sub["cycle_id"])
@@ -985,59 +1083,112 @@ def billing_status(user=Depends(verify_user)):
         response["usage"] = {
             "trainings_used": usage.get("trainings_used", 0),
             "trainings_limit": plan["max_trainings"],
-            "forecasts_used": usage.get("forecasts_used", 0),
-            "forecasts_limit": plan["max_forecasts"],
+            "data_rows_used": usage.get("data_rows_used", 0),
+            "data_rows_limit": plan["max_data_rows_per_month"],
+            "forecast_points_used": usage.get("forecast_points_used", 0),
+            "forecast_points_limit": plan["max_forecast_points_per_month"],
         }
     return JSONResponse(response)
 
 
 class SubscribeRequest(BaseModel):
-    plan_id: str  # "forecast_3mo" | "forecast_6mo" | "forecast_12mo"
+    plan_id: str  # "starter" | "growth" | "scale"
 
 
-@app.post("/billing/subscribe", summary="Start a Paymob checkout for a subscription plan")
-async def subscribe(body: SubscribeRequest, user=Depends(verify_user)):
+class CheckoutRequest(BaseModel):
+    plan_id: str
+    # ISO 3166-1 alpha-2 country code — which Paymob currency/integration to
+    # charge through. Must be one whose integration id is actually
+    # configured (see settings.paymob_countries_available) — the customer
+    # picks this on the Plan Details page's country dropdown.
+    country: str
+
+
+@app.post(
+    "/billing/start-trial",
+    summary="Start a 14-day free trial of a plan (no card required, one trial per account)",
+)
+async def start_trial(body: SubscribeRequest, user=Depends(verify_user)):
+    if user.get("is_dev_bypass"):
+        raise HTTPException(400, "The developer bypass account already skips billing entirely — no trial needed.")
+
     if body.plan_id not in PLANS:
         raise HTTPException(400, f"Unknown plan_id. Choose one of: {', '.join(PLANS)}")
 
-    if not settings.paymob_configured:
+    try:
+        result = await asyncio.to_thread(billing.start_trial, db, user["uid"], body.plan_id)
+    except TrialAlreadyUsed as exc:
+        raise HTTPException(409, str(exc))
+
+    plan = PLANS[body.plan_id]
+    logger.info(f"🎁 Trial started for uid={user['uid']}: plan={body.plan_id}, expires={result['expires_at']}")
+
+    return JSONResponse({
+        "message": f"14-day free trial of '{plan['name']}' started — no card required.",
+        "plan_id": body.plan_id,
+        "expires_at": result["expires_at"],
+        "cycle_id": result["cycle_id"],
+    })
+
+
+@app.post(
+    "/billing/subscribe",
+    summary="Start a Paymob checkout for a subscription plan (Egypt + Gulf/MENA)",
+)
+async def subscribe(body: CheckoutRequest, user=Depends(verify_user)):
+    if body.plan_id not in PLANS:
+        raise HTTPException(400, f"Unknown plan_id. Choose one of: {', '.join(PLANS)}")
+
+    available = settings.paymob_countries_available
+    country = body.country.upper()
+    if country not in available:
+        supported = ", ".join(available) or "(none configured yet)"
         raise HTTPException(
-            503,
-            "Payments aren't set up yet — add PAYMOB_API_KEY, "
-            "PAYMOB_INTEGRATION_ID and PAYMOB_IFRAME_ID to your .env file."
+            400,
+            f"Payments from '{body.country}' aren't supported yet. "
+            f"Currently supported countries: {supported}."
         )
 
     plan = PLANS[body.plan_id]
-    amount_egp = plan["price_usd"] * settings.USD_TO_EGP_RATE
+    email = user.get("email", "unknown@local.test")
+    country_info = available[country]
+    currency = country_info["currency"]
+    amount_local = plan["price_usd"] * country_info["usd_rate"]
 
     try:
         result = await paymob.create_payment_intent(
-            amount_cents=int(round(amount_egp * 100)),
-            billing_email=user.get("email", "unknown@local.test"),
+            amount_cents=int(round(amount_local * 100)),
+            billing_email=email,
+            integration_id=country_info["integration_id"],
+            currency=currency,
+            country=country,
         )
     except PaymobNotConfigured as exc:
         raise HTTPException(503, str(exc))
     except Exception as exc:
-        logger.error(f"Paymob request failed for uid={user['uid']}: {exc}")
+        logger.error(f"Paymob request failed for uid={user['uid']} (country={country}): {exc}")
         raise HTTPException(502, f"Paymob request failed: {exc}")
 
-    # Remember which plan this Paymob order is for, so the webhook (which
-    # only gets Paymob's order id back, not our plan_id) knows what to
+    # Remember which plan this order is for, so the webhook (which only
+    # gets Paymob's order id back, not our plan_id) knows what to
     # activate once payment succeeds.
     await asyncio.to_thread(
         lambda: db.collection("pending_orders").document(str(result["order_id"])).set({
             "uid": user["uid"],
             "plan_id": body.plan_id,
+            "country": country,
             "created_at": firestore.SERVER_TIMESTAMP,
         })
     )
 
     return JSONResponse({
         "plan_id": body.plan_id,
+        "country": country,
+        "currency": currency,
         "amount_usd": plan["price_usd"],
-        "amount_egp": round(amount_egp, 2),
+        "amount_local": round(amount_local, 2),
         "order_id": result["order_id"],
-        "iframe_url": result["iframe_url"],
+        "checkout_url": result["iframe_url"],
     })
 
 
