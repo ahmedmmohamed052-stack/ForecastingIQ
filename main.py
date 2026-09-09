@@ -579,15 +579,31 @@ def load_csv(contents: bytes) -> pd.DataFrame:
 
 
 def prepare_for_schema(df: pd.DataFrame, sch: dict) -> pd.DataFrame:
-    """Coerces the date column to datetime and sorts the DataFrame by
+    """Coerces the date column to datetime and the numeric columns
+    (target + numeric_features) to true numeric dtype, then sorts by
     (group_col, date_col) — shared by both /train (right after detecting a
-    new schema) and /forecast (against the schema saved with the model)."""
+    new schema) and /forecast (against the schema saved with the model).
+
+    The numeric coercion matters even though schema.detect_schema() only
+    classifies a column as numeric when ~90%+ of its values already parse
+    as numbers — the remaining <10% (blanks, stray text, "N/A") can leave
+    the column as `object` dtype, which sklearn's imputer/scaler can't
+    handle (`ufunc 'isnan' not supported for object arrays`) even though
+    pandas is happy to store it. Coercing here with errors="coerce" turns
+    any leftover non-numeric values into NaN, which the training
+    pipeline's IterativeImputer is built to handle already.
+    """
     date_col, group_col = sch["date_col"], sch["group_col"]
 
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     if df[date_col].isna().any():
         raise HTTPException(400, f"Invalid/unparseable dates in column '{date_col}'")
+
+    for c in [sch["target_col"]] + sch["numeric_features"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    if df[sch["target_col"]].isna().all():
+        raise HTTPException(400, f"Target column '{sch['target_col']}' has no valid numeric values.")
 
     sort_cols = [group_col, date_col] if group_col else [date_col]
     return df.sort_values(sort_cols).reset_index(drop=True)
@@ -641,13 +657,20 @@ def run_forecast(df: pd.DataFrame, bundle: dict, months: int = 3) -> pd.DataFram
 
         hist       = gdf.iloc[-BEST_LAGS:]
         lag_values = hist[target_col].values.tolist()
-        extra_num_vals = {c: hist[c].iloc[-1] for c in num_extra}
-        extra_cat_vals = {c: hist[c].iloc[-1] if c in hist.columns else "missing" for c in cat_extra if c != group_col}
+        extra_num_vals = {c: float(hist[c].iloc[-1]) for c in num_extra}
+        # Cast the same way training does (Smart_Za3bola.py fills NaN with
+        # "missing" and casts to str before fitting the OneHotEncoder) —
+        # predicting with a raw NaN or a non-string type here would silently
+        # mismatch what the fitted encoder expects.
+        extra_cat_vals = {
+            c: (str(hist[c].iloc[-1]) if c in hist.columns and pd.notna(hist[c].iloc[-1]) else "missing")
+            for c in cat_extra if c != group_col
+        }
 
         for step in range(months):
             row = {f"lag_{i+1}": lag_values[i] for i in range(BEST_LAGS)}
             if group_col:
-                row[group_col] = group_value
+                row[group_col] = str(group_value)  # training casts group_col to str too — must match exactly
 
             valid_lags = [v for v in lag_values[:BEST_ROLL] if not np.isnan(v)]
             row[f"rolling_mean_{BEST_ROLL}"] = np.mean(valid_lags) if valid_lags else np.nan

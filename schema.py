@@ -80,6 +80,18 @@ def detect_date_column(df: pd.DataFrame, override: str = None) -> str:
     return candidates[0][1]
 
 
+# A column with only this many (or fewer) distinct values reads as a
+# boolean/flag rather than a meaningful set of series to forecast
+# separately — e.g. "purchased" (yes/no), "in_stock" (0/1). Excluded from
+# group-column candidacy outright, however often it repeats, since
+# "repeats a lot" is exactly the property a flag column also has.
+MIN_GROUP_UNIQUE_VALUES = 3
+# Extra guard: even at 3+ uniques, values that look like true/false/yes/no
+# read as a flag, not a set of series — e.g. a "status" column with values
+# {"yes","no","unknown"}.
+BOOLEAN_LIKE_VALUES = {"true", "false", "yes", "no", "y", "n", "0", "1", "t", "f"}
+
+
 def detect_group_column(df: pd.DataFrame, date_col: str, override: str = None) -> str | None:
     if override:
         if override not in df.columns:
@@ -93,8 +105,13 @@ def detect_group_column(df: pd.DataFrame, date_col: str, override: str = None) -
             continue
         nunique = df[col].nunique(dropna=True)
         # A usable "group" column has more than one row per value (so there's
-        # a real time series per group) but isn't a near-constant column.
-        if nunique <= 1 or nunique >= n:
+        # a real time series per group) but isn't a near-constant column,
+        # AND has enough distinct values to be a real category rather than
+        # a boolean/flag (see MIN_GROUP_UNIQUE_VALUES above).
+        if nunique < MIN_GROUP_UNIQUE_VALUES or nunique >= n:
+            continue
+        distinct_values = set(str(v).strip().lower() for v in df[col].dropna().unique())
+        if distinct_values <= BOOLEAN_LIKE_VALUES:
             continue
         avg_rows_per_group = n / nunique
         if avg_rows_per_group < 2:
