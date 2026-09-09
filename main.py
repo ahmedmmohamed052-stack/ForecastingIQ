@@ -223,7 +223,7 @@ def save_forecast_to_firestore(
     preds_df: pd.DataFrame,
     historical_df: pd.DataFrame,
     sch: dict,
-):
+) -> str:
     """
     يحفظ نتيجة الـ forecast كـ document جديد تحت:
     users/{uid}/forecasts/{auto_id}
@@ -231,6 +231,9 @@ def save_forecast_to_firestore(
     (date/group/target columns من الـ schema المحفوظة) عشان insights.html
     يقدر يبني الصفحة من Firestore لوحده من غير ما يحتاج يرجع يرفع الملف
     الأصلي تاني. Column-agnostic — يشتغل مع أي schema تم اكتشافه وقت الـ train.
+    Returns the new document's id so the caller can hand it straight to
+    the Insights page (?forecast_id=...) instead of insights.html having
+    to guess which run to show.
     """
     snapshot_cols = [sch["date_col"], sch["target_col"]] + ([sch["group_col"]] if sch["group_col"] else [])
     hist_snapshot = historical_df[snapshot_cols].copy()
@@ -249,6 +252,7 @@ def save_forecast_to_firestore(
         "predictions":   preds_df.to_dict(orient="records"),
         "historical":    hist_snapshot.to_dict(orient="records"),
     })
+    return doc_ref.id
 
 
 # =============================================================================
@@ -273,6 +277,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browsers hide all response headers from JS by default except a
+    # short safelist — X-Forecast-Id etc. need to be explicitly exposed
+    # here or dashboard.html's fetch() can't read them at all, even
+    # though they're clearly visible in the Network tab.
+    expose_headers=["X-Forecast-Id", "X-Model-Name", "X-Train-RMSE", "X-Val-RMSE", "X-Baseline-RMSE", "X-Best-Lags", "X-Best-Roll", "X-Forecast-Months"],
 )
 
 # =============================================================================
@@ -297,6 +306,10 @@ FRONTEND_PAGES = {
     # (see plan-details.html), so Pricing → Select Plan → Plan Details →
     # Subscribe → Payment is now actual navigation, not a modal overlay.
     "/plan-details": "plan-details.html",
+    # Power-BI-style analytics dashboard for a saved forecast run — see
+    # /forecasts and /forecasts/{id} (the data it's built from) and
+    # dashboard.html's viewInsights() (the button that links here).
+    "/insights": "insights.html",
 }
 
 for route_path, filename in FRONTEND_PAGES.items():
@@ -895,8 +908,9 @@ async def forecast_endpoint(
     metrics = bundle["metrics"]
 
     # ── 6.5 Save forecast to Firestore (non-blocking — never breaks the CSV download) ──
+    saved_forecast_id = None
     try:
-        await asyncio.to_thread(
+        saved_forecast_id = await asyncio.to_thread(
             save_forecast_to_firestore,
             user["uid"],
             user.get("email", "unknown"),
@@ -936,6 +950,11 @@ async def forecast_endpoint(
             "X-Best-Lags":     str(bundle["lags"]),
             "X-Best-Roll":     str(bundle["roll"]),
             "X-Forecast-Months": str(months),
+            "X-Forecast-Id":    saved_forecast_id or "",
+            # Browsers block JS (fetch) from reading response headers unless
+            # the server explicitly allows it — without this, dashboard.html
+            # couldn't read X-Forecast-Id to build the "View Insights" link.
+            "Access-Control-Expose-Headers": "X-Forecast-Id, X-Model-Name, X-Train-RMSE, X-Val-RMSE, X-Baseline-RMSE, X-Best-Lags, X-Best-Roll, X-Forecast-Months",
         },
     )
 
@@ -1039,7 +1058,10 @@ def get_forecast(forecast_id: str, user=Depends(verify_user)):
         "created_at":   created_at.isoformat() if created_at else None,
         "months":       data.get("months"),
         "model_name":   data.get("model_name"),
+        "train_rmse":   data.get("train_rmse"),
         "val_rmse":     data.get("val_rmse"),
+        "baseline_rmse": data.get("baseline_rmse"),
+        "schema":       data.get("schema"),
         "predictions":  data.get("predictions", []),
         "historical":   data.get("historical", []),
     })

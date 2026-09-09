@@ -147,6 +147,8 @@ tr:hover td{background:rgba(124,58,255,.04);}
 .btn-dl:hover{background:rgba(52,211,153,.18);}
 .btn-insights{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;cursor:pointer;background:rgba(240,171,252,.1);border:1px solid rgba(240,171,252,.25);color:var(--a3);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;transition:all .2s;margin-top:12px;margin-left:8px;}
 .btn-insights:hover{background:rgba(240,171,252,.18);}
+.btn-insights:disabled{opacity:.4; cursor:not-allowed;}
+.btn-insights:disabled:hover{background:rgba(240,171,252,.1);}
  
 /* BOTTOM ROW */
 .bottom-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;animation:fadeUp .6s cubic-bezier(.34,1.56,.64,1) .38s both;}
@@ -303,7 +305,7 @@ tr:hover td{background:rgba(124,58,255,.04);}
             <div class="result-body">
               <div class="tbl-wrap"><table id="fc-table"><thead></thead><tbody></tbody></table></div>
               <button class="btn-dl" onclick="downloadCSV()">⬇ Download CSV</button>
-              <button class="btn-insights" onclick="viewInsights()">📊 View Insights</button>
+              <button class="btn-insights" id="btn-insights" onclick="viewInsights()" disabled>📊 View Insights</button>
             </div>
           </div>
         </div>
@@ -617,7 +619,7 @@ async function pollTrainingJob(jobId, intervalMs = 3000, maxWaitMs = 20 * 60 * 1
  
 // ── Forecast ───────────────────────────────────────────────────────────────
 let lastCSV = '';
-let lastHistoricalCSV = '';
+let lastForecastId = '';
 let lastForecastMonths = 3;
 async function doForecast() {
   if (!files.forecast) return;
@@ -629,17 +631,18 @@ async function doForecast() {
     const headers = await getAuthHeaders();
     const months = document.querySelector('input[name="fc-months"]:checked').value;
     lastForecastMonths = parseInt(months);
-    lastHistoricalCSV = await files.forecast.text(); // نص الملف الأصلي — هو نفسه "historicalCSV" اللي insights.html محتاجه
     const fd = new FormData(); fd.append('file', files.forecast);
     const res = await fetchWithTimeout(`${API}/forecast?months=${months}`, { method:'POST', headers, body:fd }, 60000); // 1 min timeout
-    if (!res.ok) { const e=await res.json(); throw new Error(e.detail||res.statusText); }
+    if (!res.ok) { const e=await res.json(); throw new Error(apiErrorMessage(e, res.statusText)); }
     lastCSV = await res.text();
+    lastForecastId = res.headers.get('X-Forecast-Id') || '';
     const rows = lastCSV.trim().split('\n').map(r=>r.split(','));
     const thead = document.querySelector('#fc-table thead');
     const tbody = document.querySelector('#fc-table tbody');
     thead.innerHTML = '<tr>'+rows[0].map(h=>`<th>${h}</th>`).join('')+'</tr>';
     tbody.innerHTML = rows.slice(1).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
     document.getElementById('res-fc').classList.add('on');
+    document.getElementById('btn-insights').disabled = !lastForecastId;
     setStatus('st-fc','success','✅',`Forecast complete — ${months}-month predictions ready.`);
   } catch(e) { setStatus('st-fc','error','❌',e.message); }
   setProg('pb-fc',false); btn.disabled=false;
@@ -654,15 +657,13 @@ function downloadCSV() {
 }
  
 // ── View Insights ─────────────────────────────────────────────────────────
-// NOTE: this button was wired up to open "insights.html", but that page
-// was never actually built anywhere in this project (no such file exists).
-// Rather than silently opening a blank/404 tab, we show a clear message
-// instead. Build a real insights.html page and swap this back to
-// window.open('/insights', '_blank') (add a matching route in main.py's
-// FRONTEND_PAGES, same pattern as the other pages) once it exists.
+// Opens the real, data-driven Insights dashboard for the forecast that was
+// just run — /insights reads everything it needs from GET
+// /forecasts/{forecast_id} (predictions + historical snapshot + schema +
+// metrics), so all we pass here is the id, not the actual data.
 function viewInsights() {
-  if (!lastCSV || !lastHistoricalCSV) return;
-  alert("Insights view isn't available yet — this page hasn't been built.");
+  if (!lastForecastId) return;
+  window.open(`/insights?forecast_id=${encodeURIComponent(lastForecastId)}`, '_blank');
 }
  
 // ── Metrics ────────────────────────────────────────────────────────────────

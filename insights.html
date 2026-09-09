@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Insights — ForecastIQ</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&family=Bebas+Neue&display=swap" rel="stylesheet"/>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#03040a; --surface:#080c18; --card:#0b0f1e;
+  --a1:#7c3aff; --a2:#06b6d4; --a3:#f0abfc; --a4:#34d399; --a5:#fb923c; --a6:#facc15;
+  --text:#f1f5f9; --muted:#64748b; --border:rgba(124,58,255,.18);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'JetBrains Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:rgba(124,58,255,.3);border-radius:4px;}
+
+.bg-canvas{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;}
+.orb{position:absolute;border-radius:50%;filter:blur(100px);opacity:0.15;}
+.o1{width:600px;height:600px;background:radial-gradient(circle,#7c3aff,transparent 70%);top:-15%;left:-10%;}
+.o2{width:500px;height:500px;background:radial-gradient(circle,#06b6d4,transparent 70%);bottom:-10%;right:-10%;}
+
+nav{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:rgba(8,12,24,0.92);border-bottom:1px solid var(--border);backdrop-filter:blur(24px);position:sticky;top:0;z-index:50;}
+.nav-left{display:flex;align-items:center;gap:18px;}
+.nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;}
+.nav-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.nav-sub{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;border-left:1px solid rgba(255,255,255,.1);padding-left:14px;}
+.nav-right{display:flex;align-items:center;gap:10px;}
+.nav-back{font-size:11px;color:var(--muted);text-decoration:none;letter-spacing:.05em;padding:8px 12px;border:1px solid rgba(255,255,255,.08);border-radius:8px;}
+.nav-back:hover{color:var(--text);border-color:rgba(255,255,255,.2);}
+
+select.hist-select{background:#0b0f1e;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;}
+
+main{position:relative;z-index:10;max-width:1400px;margin:0 auto;padding:28px 24px 80px;}
+
+#content{animation:fadeUp .5s cubic-bezier(.34,1.56,.64,1) both;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+
+.page-header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:22px;}
+.page-title{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;}
+.page-meta{font-size:11px;color:var(--muted);margin-top:4px;}
+.page-meta b{color:var(--a3);}
+
+/* KPI cards */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+.kpi-card{background:linear-gradient(160deg,rgba(11,15,30,.95),rgba(8,12,24,.98));border:1px solid var(--border);border-radius:14px;padding:18px;position:relative;overflow:hidden;}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--kpi-color,var(--a1));}
+.kpi-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;}
+.kpi-value{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;line-height:1;}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:5px;}
+.kpi-sub.up{color:var(--a4);} .kpi-sub.down{color:#f87171;}
+
+/* Panels */
+.grid-2{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;}
+@media (max-width:900px){.grid-2,.grid-3{grid-template-columns:1fr;}}
+
+.panel{background:linear-gradient(160deg,rgba(11,15,30,.95),rgba(8,12,24,.98));border:1px solid var(--border);border-radius:14px;padding:20px;}
+.panel-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#e2e8f0;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+.panel-desc{font-size:11px;color:var(--muted);margin-bottom:16px;}
+.chart-wrap{position:relative;height:280px;}
+.chart-wrap.tall{height:320px;}
+.chart-wrap.small{height:220px;}
+
+/* Table */
+table.data-table{width:100%;border-collapse:collapse;font-size:11px;}
+table.data-table th{text-align:left;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:9px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08);}
+table.data-table td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.04);}
+table.data-table tr:hover td{background:rgba(124,58,255,.04);}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;}
+.pill.up{background:rgba(52,211,153,.12);color:var(--a4);}
+.pill.down{background:rgba(248,113,113,.12);color:#f87171;}
+.pill.flat{background:rgba(148,163,184,.12);color:var(--muted);}
+.rank-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;background:rgba(124,58,255,.15);color:var(--a3);font-size:10px;font-weight:700;margin-right:8px;}
+
+.legend-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:10px;color:var(--muted);}
+.legend-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;}
+.legend-item{display:flex;align-items:center;}
+
+.skeleton{text-align:center;padding:100px 0;color:var(--muted);font-size:12px;}
+.err-box{text-align:center;padding:60px 0;color:#f87171;font-size:12px;}
+.empty-note{font-size:11px;color:var(--muted);text-align:center;padding:30px 0;}
+
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;align-items:center;}
+.btn-mini{background:rgba(124,58,255,.1);border:1px solid rgba(124,58,255,.25);color:var(--a3);padding:7px 14px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+.btn-mini:hover{background:rgba(124,58,255,.18);}
+</style>
+</head>
+<body>
+<div class="bg-canvas"><div class="orb o1"></div><div class="orb o2"></div></div>
+
+<nav>
+  <div class="nav-left">
+    <a class="nav-brand" href="/dashboard"><span class="nav-title">FORECASTIQ</span></a>
+    <span class="nav-sub">Insights</span>
+  </div>
+  <div class="nav-right">
+    <select class="hist-select" id="history-select" onchange="onHistoryChange()"></select>
+    <a class="nav-back" href="/dashboard">← Dashboard</a>
+  </div>
+</nav>
+
+<main>
+  <div id="content"><div class="skeleton">Loading insights...</div></div>
+</main>
+
+<script>
+const API = new URLSearchParams(location.search).get("api") || location.origin;
+const params = new URLSearchParams(location.search);
+let FORECAST_ID = params.get("forecast_id") || "";
+
+firebase.initializeApp({
+  apiKey:     "AIzaSyBTi0hycT_nCgThOoLDLDfXhCuLWeKcPMU",
+  authDomain: "sales-forecasting-75f26.firebaseapp.com"
+});
+const auth = firebase.auth();
+
+function isDevMode() { return !!localStorage.getItem("devPassword"); }
+async function getAuthHeaders() {
+  if (isDevMode()) return { "X-Dev-Password": localStorage.getItem("devPassword") };
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated — please login first");
+  const token = await user.getIdToken(false);
+  return { Authorization: `Bearer ${token}` };
+}
+async function fetchWithTimeout(url, options = {}, ms = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Request timed out — server may be busy.');
+    throw e;
+  }
+}
+function apiErrorMessage(d, fallback) {
+  const detail = d && d.detail;
+  if (!detail) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(e => typeof e === "string" ? e : (e.msg || JSON.stringify(e))).join("; ");
+  }
+  return JSON.stringify(detail);
+}
+
+let _ready = false;
+function onAuthReady() { if (_ready) return; _ready = true; boot(); }
+if (isDevMode()) { onAuthReady(); }
+else {
+  auth.onAuthStateChanged(user => {
+    if (!user) { window.location.replace(`/?next=/insights?${params.toString()}`); return; }
+    onAuthReady();
+  });
+}
+
+const PALETTE = ["#7c3aff", "#06b6d4", "#f0abfc", "#34d399", "#fb923c", "#facc15", "#f87171", "#60a5fa"];
+
+let _forecastCache = null;
+
+async function boot() {
+  await loadHistoryDropdown();
+  if (!FORECAST_ID) {
+    // No id in the URL — fall back to the most recent saved forecast.
+    const first = document.getElementById("history-select").options[0];
+    if (first) FORECAST_ID = first.value;
+  }
+  if (!FORECAST_ID) {
+    document.getElementById("content").innerHTML = `
+      <div class="err-box">
+        No saved forecasts yet. Run a forecast from the
+        <a href="/dashboard" style="color:var(--a3);">Dashboard</a> first — Insights builds itself from that.
+      </div>`;
+    return;
+  }
+  await loadForecast(FORECAST_ID);
+}
+
+async function loadHistoryDropdown() {
+  const sel = document.getElementById("history-select");
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/forecasts?limit=20`, { headers });
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    if (!d.forecasts || d.forecasts.length === 0) { sel.innerHTML = `<option value="">No saved runs</option>`; return; }
+    sel.innerHTML = d.forecasts.map(f => {
+      const date = f.created_at ? new Date(f.created_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : "—";
+      return `<option value="${f.id}">${date} · ${f.months}mo · ${f.model_name || 'model'}</option>`;
+    }).join('');
+    if (FORECAST_ID) sel.value = FORECAST_ID;
+  } catch (e) {
+    sel.innerHTML = `<option value="">History unavailable</option>`;
+  }
+}
+
+function onHistoryChange() {
+  const sel = document.getElementById("history-select");
+  if (!sel.value) return;
+  FORECAST_ID = sel.value;
+  history.replaceState(null, "", `/insights?forecast_id=${encodeURIComponent(FORECAST_ID)}`);
+  loadForecast(FORECAST_ID);
+}
+
+async function loadForecast(id) {
+  const content = document.getElementById("content");
+  content.innerHTML = `<div class="skeleton">Loading insights...</div>`;
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/forecasts/${encodeURIComponent(id)}`, { headers });
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    _forecastCache = d;
+    render(d);
+  } catch (e) {
+    content.innerHTML = `<div class="err-box">${e.message}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Everything below is pure client-side computation over one forecast
+// run's { schema, predictions[], historical[], months, model_name,
+// train_rmse, val_rmse, baseline_rmse } — no extra API calls needed.
+// ══════════════════════════════════════════════════════════════════════
+function render(d) {
+  const sch = d.schema || {};
+  const dateCol = sch.date_col, groupCol = sch.group_col, targetCol = sch.target_col;
+  const hist = d.historical || [];
+  const preds = d.predictions || [];
+
+  const hasGroups = !!groupCol;
+  const groupOf = row => hasGroups ? String(row[groupCol]) : "Total";
+
+  // ── Aggregate totals ────────────────────────────────────────────────
+  const totalHistorical = hist.reduce((s, r) => s + (Number(r[targetCol]) || 0), 0);
+  const totalForecasted = preds.reduce((s, r) => s + (Number(r.predicted_value) || 0), 0);
+  const histPeriods = new Set(hist.map(r => r[dateCol])).size || 1;
+  const fcPeriods = d.months || (new Set(preds.map(r => r.forecast_period)).size || 1);
+  const avgHistPerPeriod = totalHistorical / histPeriods;
+  const avgFcPerPeriod = totalForecasted / fcPeriods;
+  const growthPct = avgHistPerPeriod > 0 ? ((avgFcPerPeriod - avgHistPerPeriod) / avgHistPerPeriod) * 100 : null;
+
+  const accuracyPct = (d.baseline_rmse && d.baseline_rmse > 0)
+    ? Math.max(0, Math.min(100, (1 - (d.val_rmse / d.baseline_rmse)) * 100))
+    : null;
+
+  const seriesNames = hasGroups ? [...new Set([...hist.map(groupOf), ...preds.map(groupOf)])] : ["Total"];
+  const numSeries = seriesNames.length;
+
+  // ── Per-group breakdown ─────────────────────────────────────────────
+  const breakdown = seriesNames.map(name => {
+    const hRows = hist.filter(r => groupOf(r) === name);
+    const pRows = preds.filter(r => groupOf(r) === name);
+    const hTotal = hRows.reduce((s, r) => s + (Number(r[targetCol]) || 0), 0);
+    const hPeriods = new Set(hRows.map(r => r[dateCol])).size || 1;
+    const pTotal = pRows.reduce((s, r) => s + (Number(r.predicted_value) || 0), 0);
+    const pPeriods = new Set(pRows.map(r => r.forecast_period)).size || 1;
+    const hAvg = hTotal / hPeriods, pAvg = pTotal / pPeriods;
+    const growth = hAvg > 0 ? ((pAvg - hAvg) / hAvg) * 100 : null;
+    return { name, hTotal, hAvg, pTotal, pAvg, growth };
+  }).sort((a, b) => b.pTotal - a.pTotal);
+
+  const best = breakdown[0];
+  const worst = breakdown[breakdown.length - 1];
+
+  content_inner(d, {
+    dateCol, groupCol, targetCol, hasGroups, hist, preds,
+    totalHistorical, totalForecasted, avgHistPerPeriod, avgFcPerPeriod, growthPct,
+    accuracyPct, numSeries, breakdown, best, worst, groupOf,
+  });
+}
+
+function fmtNum(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return Math.round(n * 100) / 100;
+}
+function fmtPct(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
+}
+function growthPill(n) {
+  if (n === null || n === undefined || isNaN(n)) return `<span class="pill flat">—</span>`;
+  const cls = n > 1 ? "up" : (n < -1 ? "down" : "flat");
+  const arrow = n > 1 ? "▲" : (n < -1 ? "▼" : "•");
+  return `<span class="pill ${cls}">${arrow} ${fmtPct(n)}</span>`;
+}
+
+function content_inner(d, m) {
+  const content = document.getElementById("content");
+  const createdLabel = d.created_at ? new Date(d.created_at).toLocaleString() : "—";
+
+  content.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Forecast Insights</div>
+        <div class="page-meta">
+          Run on <b>${createdLabel}</b> · Target: <b>${m.targetCol}</b>
+          ${m.hasGroups ? ` · Grouped by <b>${m.groupCol}</b> (${m.numSeries} series)` : ` · Single series`}
+          · Model: <b>${d.model_name || '—'}</b>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="btn-mini" onclick="exportBreakdownCSV()">⬇ Export Breakdown CSV</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--kpi-color:${'var(--a1)'}">
+        <div class="kpi-label">Total Historical</div>
+        <div class="kpi-value">${fmtNum(m.totalHistorical)}</div>
+        <div class="kpi-sub">across all recorded periods</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${'var(--a2)'}">
+        <div class="kpi-label">Total Forecasted</div>
+        <div class="kpi-value">${fmtNum(m.totalForecasted)}</div>
+        <div class="kpi-sub">next ${d.months} month${d.months === 1 ? '' : 's'}</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${m.growthPct >= 0 ? 'var(--a4)' : '#f87171'}">
+        <div class="kpi-label">Projected Growth</div>
+        <div class="kpi-value">${fmtPct(m.growthPct)}</div>
+        <div class="kpi-sub ${m.growthPct >= 0 ? 'up' : 'down'}">avg forecasted vs avg historical period</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${'var(--a6)'}">
+        <div class="kpi-label">Model Accuracy</div>
+        <div class="kpi-value">${m.accuracyPct !== null ? m.accuracyPct.toFixed(1) + '%' : '—'}</div>
+        <div class="kpi-sub">vs. naive baseline (Val RMSE ${fmtNum(d.val_rmse)})</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${'var(--a3)'}">
+        <div class="kpi-label">${m.hasGroups ? 'Series Forecasted' : 'Forecast Horizon'}</div>
+        <div class="kpi-value">${m.hasGroups ? m.numSeries : d.months + ' mo'}</div>
+        <div class="kpi-sub">${m.hasGroups ? (m.groupCol + ' groups') : 'months ahead'}</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${'var(--a5)'}">
+        <div class="kpi-label">Top Performer</div>
+        <div class="kpi-value" style="font-size:16px;">${m.best ? m.best.name : '—'}</div>
+        <div class="kpi-sub up">${m.best ? fmtNum(m.best.pTotal) + ' forecasted' : ''}</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">📈 Trend — Historical vs Forecast</div>
+        <div class="panel-desc">Solid line = actuals · Dashed line = forecast${m.hasGroups ? ' (top series shown)' : ''}</div>
+        <div class="chart-wrap tall"><canvas id="chart-trend"></canvas></div>
+        <div class="legend-row" id="trend-legend"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">${m.hasGroups ? '🥧 Forecast Share by Series' : '📊 Forecast by Period'}</div>
+        <div class="panel-desc">${m.hasGroups ? 'Contribution to total forecasted volume' : 'Predicted value per upcoming period'}</div>
+        <div class="chart-wrap tall"><canvas id="chart-share"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="panel">
+        <div class="panel-title">🏆 Top Performers</div>
+        <div class="panel-desc">Highest forecasted volume</div>
+        <div class="chart-wrap small"><canvas id="chart-top"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">📐 Model Performance</div>
+        <div class="panel-desc">How this model compares to a naive guess</div>
+        <div style="display:flex; flex-direction:column; gap:12px; margin-top:8px;">
+          ${perfRow('Model', d.model_name || '—')}
+          ${perfRow('Train RMSE', fmtNum(d.train_rmse))}
+          ${perfRow('Validation RMSE', fmtNum(d.val_rmse))}
+          ${perfRow('Baseline RMSE (naive)', fmtNum(d.baseline_rmse))}
+          ${perfRow('Improvement vs baseline', m.accuracyPct !== null ? m.accuracyPct.toFixed(1) + '%' : '—')}
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">⚡ Momentum</div>
+        <div class="panel-desc">Growth leaders & laggards</div>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+          ${momentumRow('Fastest growing', m.breakdown.slice().sort((a,b)=>(b.growth??-999)-(a.growth??-999))[0])}
+          ${momentumRow('Slowest / declining', m.breakdown.slice().sort((a,b)=>(a.growth??999)-(b.growth??999))[0])}
+          ${momentumRow('Highest volume', m.best)}
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">📋 ${m.hasGroups ? 'Series Breakdown' : 'Forecast Detail'}</div>
+      <div class="panel-desc">${m.hasGroups ? 'Every series, ranked by forecasted volume' : 'Every forecasted period'}</div>
+      <div style="overflow-x:auto;">
+        ${m.hasGroups ? renderGroupTable(m) : renderPeriodTable(d, m)}
+      </div>
+    </div>
+  `;
+
+  drawTrendChart(d, m);
+  drawShareChart(d, m);
+  drawTopChart(m);
+}
+
+function perfRow(label, value) {
+  return `<div style="display:flex; justify-content:space-between; font-size:12px; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,.05);">
+    <span style="color:var(--muted);">${label}</span><span style="font-weight:600;">${value}</span>
+  </div>`;
+}
+function momentumRow(label, row) {
+  if (!row) return `<div style="font-size:11px; color:var(--muted);">${label}: —</div>`;
+  return `<div>
+    <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px;">${label}</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+      <span style="font-weight:600;">${row.name}</span>${growthPill(row.growth)}
+    </div>
+  </div>`;
+}
+
+function renderGroupTable(m) {
+  const rows = m.breakdown.map((r, i) => `
+    <tr>
+      <td><span class="rank-badge">${i + 1}</span>${r.name}</td>
+      <td>${fmtNum(r.hTotal)}</td>
+      <td>${fmtNum(r.hAvg)}</td>
+      <td>${fmtNum(r.pTotal)}</td>
+      <td>${fmtNum(r.pAvg)}</td>
+      <td>${growthPill(r.growth)}</td>
+    </tr>
+  `).join('');
+  return `<table class="data-table">
+    <thead><tr><th>${m.groupCol}</th><th>Historical Total</th><th>Historical Avg/Period</th><th>Forecast Total</th><th>Forecast Avg/Period</th><th>Growth</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+function renderPeriodTable(d, m) {
+  const rows = (d.predictions || []).slice().sort((a,b)=>a.forecast_period.localeCompare(b.forecast_period)).map(r => `
+    <tr><td>${r.forecast_period}</td><td>${fmtNum(r.predicted_value)}</td></tr>
+  `).join('');
+  return `<table class="data-table">
+    <thead><tr><th>Period</th><th>Predicted ${m.targetCol}</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function exportBreakdownCSV() {
+  if (!_forecastCache) return;
+  const rows = document.querySelectorAll('.data-table tr');
+  const csv = [...rows].map(tr => [...tr.children].map(td => `"${td.textContent.replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = `insights_breakdown_${FORECAST_ID}.csv`;
+  a.click();
+}
+
+// ── Charts ───────────────────────────────────────────────────────────────
+let _charts = {};
+function destroyChart(key) { if (_charts[key]) { _charts[key].destroy(); delete _charts[key]; } }
+
+const CHART_DEFAULTS = {
+  color: '#94a3b8',
+  font: { family: "'JetBrains Mono', monospace", size: 10 },
+};
+
+function drawTrendChart(d, m) {
+  destroyChart('trend');
+  const ctx = document.getElementById('chart-trend').getContext('2d');
+  const dateCol = m.dateCol, targetCol = m.targetCol;
+
+  // Cap to top 6 series by forecast volume for readability; note the rest.
+  const shownSeries = m.breakdown.slice(0, 6).map(b => b.name);
+  const hiddenCount = m.breakdown.length - shownSeries.length;
+
+  // Build a unified, sorted period axis (historical + forecast).
+  const histPeriodsSet = new Set(m.hist.map(r => r[dateCol]));
+  const fcPeriodsSet = new Set(m.preds.map(r => r.forecast_period));
+  const allPeriods = [...new Set([...histPeriodsSet, ...fcPeriodsSet])].sort();
+
+  const datasets = [];
+  shownSeries.forEach((name, i) => {
+    const color = PALETTE[i % PALETTE.length];
+    const hRows = m.hist.filter(r => m.groupOf(r) === name);
+    const pRows = m.preds.filter(r => m.groupOf(r) === name);
+    const hMap = Object.fromEntries(hRows.map(r => [r[dateCol], Number(r[targetCol])]));
+    const pMap = Object.fromEntries(pRows.map(r => [r.forecast_period, Number(r.predicted_value)]));
+
+    const lastHistPeriod = [...histPeriodsSet].filter(p => hMap[p] !== undefined).sort().pop();
+
+    const solid = allPeriods.map(p => hMap[p] !== undefined ? hMap[p] : null);
+    const dashed = allPeriods.map(p => {
+      if (pMap[p] !== undefined) return pMap[p];
+      if (p === lastHistPeriod) return hMap[p]; // bridge point so the dashed line connects
+      return null;
+    });
+
+    datasets.push({ label: name + ' (actual)', data: solid, borderColor: color, backgroundColor: color, tension: 0.3, pointRadius: 2, borderWidth: 2, spanGaps: false });
+    datasets.push({ label: name + ' (forecast)', data: dashed, borderColor: color, backgroundColor: color, borderDash: [5,4], tension: 0.3, pointRadius: 2, borderWidth: 2, spanGaps: false });
+  });
+
+  _charts.trend = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allPeriods, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: CHART_DEFAULTS.font, maxRotation: 45, minRotation: 0 }, grid: { color: 'rgba(255,255,255,.04)' } },
+        y: { ticks: { color: '#64748b', font: CHART_DEFAULTS.font }, grid: { color: 'rgba(255,255,255,.04)' } },
+      },
+      interaction: { mode: 'nearest', intersect: false },
+    },
+  });
+
+  const legend = document.getElementById('trend-legend');
+  legend.innerHTML = shownSeries.map((name, i) =>
+    `<span class="legend-item"><span class="legend-dot" style="background:${PALETTE[i % PALETTE.length]}"></span>${name}</span>`
+  ).join('') + (hiddenCount > 0 ? `<span class="legend-item" style="opacity:.6;">+${hiddenCount} more in table below</span>` : '');
+}
+
+function drawShareChart(d, m) {
+  destroyChart('share');
+  const ctx = document.getElementById('chart-share').getContext('2d');
+
+  if (m.hasGroups) {
+    const top = m.breakdown.slice(0, 6);
+    const othersTotal = m.breakdown.slice(6).reduce((s, r) => s + r.pTotal, 0);
+    const labels = top.map(r => r.name).concat(othersTotal > 0 ? ['Others'] : []);
+    const values = top.map(r => r.pTotal).concat(othersTotal > 0 ? [othersTotal] : []);
+    const colors = labels.map((_, i) => i < PALETTE.length ? PALETTE[i] : '#475569');
+
+    _charts.share = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: values, backgroundColor: colors, borderColor: '#0b0f1e', borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: CHART_DEFAULTS.font, boxWidth: 10, padding: 10 } } },
+      },
+    });
+  } else {
+    const sorted = (d.predictions || []).slice().sort((a,b)=>a.forecast_period.localeCompare(b.forecast_period));
+    _charts.share = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sorted.map(r => r.forecast_period),
+        datasets: [{ label: m.targetCol, data: sorted.map(r => r.predicted_value), backgroundColor: '#7c3aff', borderRadius: 6 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#64748b', font: CHART_DEFAULTS.font }, grid: { display: false } },
+          y: { ticks: { color: '#64748b', font: CHART_DEFAULTS.font }, grid: { color: 'rgba(255,255,255,.04)' } },
+        },
+      },
+    });
+  }
+}
+
+function drawTopChart(m) {
+  destroyChart('top');
+  const ctx = document.getElementById('chart-top').getContext('2d');
+  const top = m.breakdown.slice(0, 8);
+  _charts.top = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(r => r.name),
+      datasets: [{ data: top.map(r => r.pTotal), backgroundColor: PALETTE[0], borderRadius: 5 }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: CHART_DEFAULTS.font }, grid: { color: 'rgba(255,255,255,.04)' } },
+        y: { ticks: { color: '#94a3b8', font: CHART_DEFAULTS.font }, grid: { display: false } },
+      },
+    },
+  });
+}
+</script>
+</body>
+</html>
