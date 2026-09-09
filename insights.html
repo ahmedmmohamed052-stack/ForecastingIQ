@@ -100,6 +100,7 @@ table.data-table tr:hover td{background:rgba(124,58,255,.04);}
   </div>
   <div class="nav-right">
     <select class="hist-select" id="history-select" onchange="onHistoryChange()"></select>
+    <button class="btn-mini" id="btn-del-forecast" style="background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.25);color:#f87171;" onclick="deleteCurrentForecast()">🗑 Delete</button>
     <a class="nav-back" href="/dashboard">← Dashboard</a>
   </div>
 </nav>
@@ -220,6 +221,21 @@ async function loadForecast(id) {
     render(d);
   } catch (e) {
     content.innerHTML = `<div class="err-box">${e.message}</div>`;
+  }
+}
+
+async function deleteCurrentForecast() {
+  if (!FORECAST_ID) return;
+  if (!confirm("Delete this saved forecast? This can't be undone.")) return;
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/forecasts/${encodeURIComponent(FORECAST_ID)}`, { method: "DELETE", headers });
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    FORECAST_ID = "";
+    await boot();
+  } catch (e) {
+    alert(e.message);
   }
 }
 

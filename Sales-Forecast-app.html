@@ -596,6 +596,20 @@
       background: rgba(124,58,255,0.4);
     }
 
+    /* ── Info links (About / User Guide) ── */
+    .info-links {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      margin-top: 14px;
+    }
+    .info-link {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.1em;
+      text-transform: uppercase; text-decoration: none; padding: 7px 14px;
+      border-radius: 8px; border: 1px solid rgba(124,58,255,0.25);
+      color: var(--accent3, #f0abfc); background: rgba(124,58,255,0.06);
+      transition: all 0.2s;
+    }
+    .info-link:hover { background: rgba(124,58,255,0.14); border-color: rgba(124,58,255,0.5); }
+
     /* ── Particles ── */
     .particles { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
     .particle {
@@ -956,6 +970,11 @@
   <button id="api-btn" style="display:none;"></button>
 
   <p id="msg"></p>
+
+  <div class="info-links">
+    <a class="info-link" href="/about">About the Platform</a>
+    <a class="info-link" href="/guide">User Guide</a>
+  </div>
 
   <div class="footer">
     <span>Firebase Auth</span>

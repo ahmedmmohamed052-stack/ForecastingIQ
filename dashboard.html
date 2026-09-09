@@ -209,6 +209,8 @@ tr:hover td{background:rgba(124,58,255,.04);}
       <div class="nav-title">Forecast Dashboard</div>
     </div>
     <div class="nav-right">
+      <a class="btn-logout" style="background:rgba(124,58,255,.08);border-color:rgba(124,58,255,.2);color:var(--a3);text-decoration:none;" href="/about">About</a>
+      <a class="btn-logout" style="background:rgba(6,182,212,.08);border-color:rgba(6,182,212,.2);color:var(--a2);text-decoration:none;" href="/guide">User Guide</a>
       <div class="user-pill"><div class="user-dot"></div><span id="nav-email">loading...</span></div>
       <button class="btn-logout" onclick="logout()">Sign Out</button>
     </div>
@@ -813,8 +815,20 @@ function renderHistory(items) {
         <div class="hist-meta">Val RMSE ${f.val_rmse ?? '—'} · ${f.created_at ? new Date(f.created_at).toLocaleString() : ''}</div>
       </div>
       <a class="hist-view" href="/insights?forecast_id=${encodeURIComponent(f.id)}" target="_blank" rel="noopener">📊 View Insights</a>
+      <button class="model-del" onclick="deleteForecast('${f.id}')">🗑</button>
     </div>
   `).join('');
+}
+
+async function deleteForecast(id) {
+  if (!confirm('Delete this saved forecast? Its Insights page will no longer be accessible.')) return;
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/forecasts/${encodeURIComponent(id)}`, { method:'DELETE', headers }, 10000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    fetchForecastHistory();
+  } catch (e) { alert(e.message); }
 }
 
 // ── Neural SVG bg ──────────────────────────────────────────────────────────

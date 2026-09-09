@@ -1112,6 +1112,7 @@ def list_forecasts(
             "id":         d.id,
             "created_at": created_at.isoformat() if created_at else None,
             "months":     data.get("months"),
+            "model_id":   data.get("model_id"),
             "model_name": data.get("model_name"),
             "val_rmse":   data.get("val_rmse"),
         })
@@ -1137,6 +1138,7 @@ def get_forecast(forecast_id: str, user=Depends(verify_user)):
         "id":           doc.id,
         "created_at":   created_at.isoformat() if created_at else None,
         "months":       data.get("months"),
+        "model_id":     data.get("model_id"),
         "model_name":   data.get("model_name"),
         "train_rmse":   data.get("train_rmse"),
         "val_rmse":     data.get("val_rmse"),
@@ -1145,6 +1147,23 @@ def get_forecast(forecast_id: str, user=Depends(verify_user)):
         "predictions":  data.get("predictions", []),
         "historical":   data.get("historical", []),
     })
+
+
+@app.delete("/forecasts/{forecast_id}", summary="Delete one of your saved forecast runs")
+async def delete_forecast(forecast_id: str, user=Depends(verify_user)):
+    """
+    يحذف forecast run واحد محفوظ لليوزر (وبيلغي وصوله لصفحة /insights بتاعته).
+    ما بيأثرش على الموديل نفسه ولا على أي forecasts تانية.
+    """
+    doc_ref = (
+        db.collection("users").document(user["uid"])
+          .collection("forecasts").document(forecast_id)
+    )
+    doc = await asyncio.to_thread(doc_ref.get)
+    if not doc.exists:
+        raise HTTPException(404, "No saved forecast found with that forecast_id for your account.")
+    await asyncio.to_thread(doc_ref.delete)
+    return JSONResponse({"message": "✅ Forecast deleted."})
 
 
 # =============================================================================
