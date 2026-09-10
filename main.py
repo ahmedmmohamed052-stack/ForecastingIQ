@@ -49,6 +49,7 @@ from ratelimit import enforce_train_rate_limit, enforce_forecast_rate_limit
 
 # 🏋️ Background training queue (so /train never blocks a request)
 import jobs
+import forecast_store
 from jobs import TrainingJobQueue, JobStatus
 
 # 🧬 Automatic column detection so /train and /forecast work with any CSV
@@ -270,9 +271,13 @@ def delete_model_cloud(uid: str, model_id: str) -> bool:
 
 
 # =============================================================================
-# 📊  FORECAST HISTORY — يحفظ نتيجة كل /forecast في Firestore
+# 📊  FORECAST HISTORY — يحفظ نتيجة كل /forecast في Postgres (Railway)
 # =============================================================================
-def save_forecast_to_firestore(
+# Moved off Firestore: a saved forecast (predictions + historical snapshot)
+# routinely exceeds Firestore's 1 MiB/document cap once there are many
+# groups and/or a long horizon — that's exactly what silently broke "View
+# Insights". See forecast_store.py for the Postgres table + queries.
+def save_forecast_to_history(
     uid: str,
     email: str,
     months: int,
@@ -283,35 +288,28 @@ def save_forecast_to_firestore(
     model_id: str = None,
 ) -> str:
     """
-    يحفظ نتيجة الـ forecast كـ document جديد تحت:
-    users/{uid}/forecasts/{auto_id}
+    يحفظ نتيجة الـ forecast كـ صف جديد في جدول forecasts على Postgres —
     بيحتوي الـ metrics + الـ predictions + نسخة خفيفة من الـ historical data
     (date/group/target columns من الـ schema المحفوظة) عشان insights.html
-    يقدر يبني الصفحة من Firestore لوحده من غير ما يحتاج يرجع يرفع الملف
-    الأصلي تاني. Column-agnostic — يشتغل مع أي schema تم اكتشافه وقت الـ train.
-    Returns the new document's id so the caller can hand it straight to
-    the Insights page (?forecast_id=...) instead of insights.html having
-    to guess which run to show.
+    يقدر يبني الصفحة من غير ما يحتاج يرجع يرفع الملف الأصلي تاني.
+    Column-agnostic — يشتغل مع أي schema تم اكتشافه وقت الـ train.
+    Returns the new row's id so the caller can hand it straight to
+    the Insights page (?forecast_id=...).
     """
     snapshot_cols = [sch["date_col"], sch["target_col"]] + ([sch["group_col"]] if sch["group_col"] else [])
     hist_snapshot = historical_df[snapshot_cols].copy()
     hist_snapshot[sch["date_col"]] = hist_snapshot[sch["date_col"]].dt.strftime("%Y-%m")
 
-    doc_ref = db.collection("users").document(uid).collection("forecasts").document()
-    doc_ref.set({
-        "owner_email":   email,
-        "created_at":    firestore.SERVER_TIMESTAMP,
-        "months":        months,
-        "model_id":      model_id,
-        "model_name":    metrics.get("model_name"),
-        "train_rmse":    metrics.get("train_rmse"),
-        "val_rmse":      metrics.get("val_rmse"),
-        "baseline_rmse": metrics.get("baseline_rmse"),
-        "schema":        sch,
-        "predictions":   preds_df.to_dict(orient="records"),
-        "historical":    hist_snapshot.to_dict(orient="records"),
-    })
-    return doc_ref.id
+    return forecast_store.save_forecast(
+        uid=uid,
+        email=email,
+        months=months,
+        metrics=metrics,
+        predictions=preds_df.to_dict(orient="records"),
+        historical=hist_snapshot.to_dict(orient="records"),
+        sch=sch,
+        model_id=model_id,
+    )
 
 
 # =============================================================================
@@ -396,6 +394,15 @@ def health_check():
 @app.on_event("startup")
 async def _start_background_workers():
     training_queue.start_workers(num_workers=settings.MAX_CONCURRENT_TRAINING_JOBS)
+
+
+@app.on_event("startup")
+async def _init_postgres():
+    # Creates the forecasts table if it doesn't exist yet — safe to run
+    # on every boot. If DATABASE_URL isn't set, this raises loudly at
+    # startup instead of failing silently the first time someone hits
+    # "View Insights".
+    await asyncio.to_thread(forecast_store.init_db)
 
 
 @app.exception_handler(Exception)
@@ -985,7 +992,7 @@ async def forecast_endpoint(
 
     metrics = bundle["metrics"]
 
-    # ── 6.5 Save forecast to Firestore (never breaks the CSV download, but
+    # ── 6.5 Save forecast to Postgres (never breaks the CSV download, but
     #      failure is now VISIBLE instead of silently swallowed — a swallowed
     #      failure here is exactly what makes "View Insights" look permanently
     #      broken and Past Forecasts look permanently empty, with no clue why.
@@ -996,7 +1003,7 @@ async def forecast_endpoint(
     save_error = None
     try:
         saved_forecast_id = await asyncio.to_thread(
-            save_forecast_to_firestore,
+            save_forecast_to_history,
             user["uid"],
             user.get("email", "unknown"),
             months,
@@ -1008,7 +1015,7 @@ async def forecast_endpoint(
         )
     except Exception as fs_exc:
         save_error = str(fs_exc)
-        logger.error(f"Firestore forecast-save FAILED for uid={user['uid']}: {fs_exc}", exc_info=True)
+        logger.error(f"Forecast-history save FAILED for uid={user['uid']}: {fs_exc}", exc_info=True)
 
     # ── 6. Send email (non-blocking) ─────────────────────────────────────────
     user_email = user.get("email")
@@ -1118,28 +1125,10 @@ def list_forecasts(
     detail (GET /forecasts/{id}) requires an Insights-capable plan.
     """
     try:
-        docs = (
-            db.collection("users").document(user["uid"])
-              .collection("forecasts")
-              .order_by("created_at", direction=firestore.Query.DESCENDING)
-              .limit(limit)
-              .stream()
-        )
-        items = []
-        for d in docs:
-            data = d.to_dict()
-            created_at = data.get("created_at")
-            items.append({
-                "id":         d.id,
-                "created_at": created_at.isoformat() if created_at else None,
-                "months":     data.get("months"),
-                "model_id":   data.get("model_id"),
-                "model_name": data.get("model_name"),
-                "val_rmse":   data.get("val_rmse"),
-            })
+        items = forecast_store.list_forecasts(user["uid"], limit)
         return JSONResponse({"forecasts": items})
     except Exception as exc:
-        logger.error(f"GET /forecasts failed for uid={user['uid']}: {exc}")
+        logger.error(f"GET /forecasts failed for uid={user['uid']}: {exc}", exc_info=True)
         raise HTTPException(500, f"Couldn't load your forecast history: {exc}")
 
 
@@ -1166,28 +1155,10 @@ def get_forecast(forecast_id: str, user=Depends(verify_user)):
                 "Upgrade to Growth or Scale at /billing/plans to unlock it."
             )
 
-    doc = (
-        db.collection("users").document(user["uid"])
-          .collection("forecasts").document(forecast_id).get()
-    )
-    if not doc.exists:
+    data = forecast_store.get_forecast(user["uid"], forecast_id)
+    if not data:
         raise HTTPException(404, "Forecast not found")
-
-    data = doc.to_dict()
-    created_at = data.get("created_at")
-    return JSONResponse({
-        "id":           doc.id,
-        "created_at":   created_at.isoformat() if created_at else None,
-        "months":       data.get("months"),
-        "model_id":     data.get("model_id"),
-        "model_name":   data.get("model_name"),
-        "train_rmse":   data.get("train_rmse"),
-        "val_rmse":     data.get("val_rmse"),
-        "baseline_rmse": data.get("baseline_rmse"),
-        "schema":       data.get("schema"),
-        "predictions":  data.get("predictions", []),
-        "historical":   data.get("historical", []),
-    })
+    return JSONResponse(data)
 
 
 @app.delete("/forecasts/{forecast_id}", summary="Delete one of your saved forecast runs")
@@ -1196,14 +1167,9 @@ async def delete_forecast(forecast_id: str, user=Depends(verify_user)):
     يحذف forecast run واحد محفوظ لليوزر (وبيلغي وصوله لصفحة /insights بتاعته).
     ما بيأثرش على الموديل نفسه ولا على أي forecasts تانية.
     """
-    doc_ref = (
-        db.collection("users").document(user["uid"])
-          .collection("forecasts").document(forecast_id)
-    )
-    doc = await asyncio.to_thread(doc_ref.get)
-    if not doc.exists:
+    deleted = await asyncio.to_thread(forecast_store.delete_forecast, user["uid"], forecast_id)
+    if not deleted:
         raise HTTPException(404, "No saved forecast found with that forecast_id for your account.")
-    await asyncio.to_thread(doc_ref.delete)
     return JSONResponse({"message": "✅ Forecast deleted."})
 
 

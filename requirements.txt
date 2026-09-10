@@ -6,6 +6,7 @@ scikit-learn==1.7.0
 xgboost
 joblib
 firebase-admin
+psycopg2-binary
 python-multipart
 python-dotenv
 httpx

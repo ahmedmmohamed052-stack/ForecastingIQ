@@ -441,6 +441,21 @@ class Settings:
     def max_upload_size_bytes(self) -> int:
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
+    # ── Postgres (Railway) — forecast history storage ───────────────────
+    # Forecast documents (predictions + historical snapshot) can exceed
+    # Firestore's 1 MiB/document cap, which is what was silently breaking
+    # "View Insights". Only the `forecasts` table lives here — everything
+    # else (auth, models, billing/users) stays on Firestore.
+    #
+    # On Railway: add a Postgres service to this project, then on the
+    # main app service set DATABASE_URL to a REFERENCE of the Postgres
+    # service's internal URL — e.g. ${{Postgres.DATABASE_URL}} — instead
+    # of pasting the raw connection string. That's the only variable you
+    # need to add here; the individual PGHOST/PGUSER/etc. vars Railway
+    # also exposes are not needed since DATABASE_URL already encodes them.
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DB_POOL_MAX: int = _get_int("DB_POOL_MAX", 5)
+
     # ── Monitoring / error tracking ──────────────────────────────────────
     # Leave blank to just log to console + a rotating local file
     # (see logging_setup.py). Set SENTRY_DSN (from sentry.io, free tier is
