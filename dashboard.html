@@ -251,6 +251,18 @@ tr:hover td{background:rgba(124,58,255,.04);}
           <span class="sb-icon">💳</span><span>Loading subscription status...</span>
         </div>
         <div id="plans-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px;"></div>
+
+        <div style="border-top:1px solid rgba(255,255,255,.08); margin-top:20px; padding-top:16px;">
+          <h3 style="margin:0 0 4px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; opacity:.85;">🌍 Country &amp; Currency</h3>
+          <div style="font-size:10.5px; opacity:.6; margin-bottom:12px;">Sets which currency plan prices are shown in, and — if you subscribe — which currency you're actually charged in at checkout.</div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <select id="country-tab-select" class="model-name-input" style="width:auto; min-width:240px; flex:1;">
+              <option value="">Loading countries...</option>
+            </select>
+            <button class="btn-refresh" style="width:auto; padding:9px 16px;" onclick="saveMyCountry()">Save</button>
+          </div>
+          <div class="status-box sb-idle" id="st-country" style="display:none; margin-top:10px;"></div>
+        </div>
       </div>
     </div>
 
@@ -402,6 +414,7 @@ function loadDashboardData() {
   fetchModels();
   fetchBillingStatus();
   fetchForecastHistory();
+  loadCountryTabOptions();
 }
 if (isDevMode()) {
   document.getElementById("nav-email").textContent = currentUserLabel() + " (dev mode)";
@@ -519,6 +532,50 @@ function applyInsightsGating() {
     }
   }
   fetchForecastHistory(); // re-render history rows with the current gating state
+  const sel = document.getElementById('country-tab-select');
+  if (sel && myCountry && _countryOptionsLoaded) sel.value = myCountry;
+}
+
+// ── Country & Currency tab ───────────────────────────────────────────────
+let _countryOptionsLoaded = false;
+async function loadCountryTabOptions() {
+  const sel = document.getElementById('country-tab-select');
+  try {
+    const res = await fetchWithTimeout(`${API}/currencies`, {}, 8000);
+    const d = await res.json();
+    sel.innerHTML = Object.entries(d.currencies || {}).map(([code, info]) =>
+      `<option value="${code}">${info.label} (${info.currency})</option>`
+    ).join('');
+    _countryOptionsLoaded = true;
+    if (myCountry) sel.value = myCountry;
+  } catch (e) {
+    sel.innerHTML = `<option value="OTHER">Other / International</option>`;
+  }
+}
+
+async function saveMyCountry() {
+  const sel = document.getElementById('country-tab-select');
+  const country = sel.value;
+  const box = document.getElementById('st-country');
+  box.style.display = 'flex';
+  box.className = 'status-box sb-idle';
+  box.innerHTML = `<span class="sb-icon"><span class="spin"></span></span><span>Saving...</span>`;
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/profile/country`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ country }),
+    }, 8000);
+    const d = await res.json();
+    if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
+    box.className = 'status-box sb-success';
+    box.innerHTML = `<span class="sb-icon">✅</span><span>Saved — prices now show in <strong>${d.currency}</strong>.</span>`;
+    await fetchBillingStatus(); // refresh prices/plan cards with the new currency
+  } catch (e) {
+    box.className = 'status-box sb-error';
+    box.innerHTML = `<span class="sb-icon">❌</span><span>${e.message}</span>`;
+  }
 }
 
 // Converts a plan's base EGP price into the signed-in user's display

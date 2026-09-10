@@ -182,8 +182,10 @@ def _models_collection(uid: str):
 
 
 def count_models(uid: str) -> int:
-    """Cheap count of how many trained models this user currently has saved."""
-    return len(list(_models_collection(uid).select([]).stream()))
+    """Cheap-ish count of how many trained models this user currently has
+    saved. Avoids Query.select([]) (unsupported/finicky on some Firestore
+    client versions) — fetching just the ids is small and reliable."""
+    return sum(1 for _ in _models_collection(uid).list_documents())
 
 
 def save_model(uid: str, bundle: dict, name: str = None) -> str:
@@ -1097,27 +1099,35 @@ def list_forecasts(
     """
     يرجّع قائمة مختصرة لآخر forecasts المحفوظة لليوزر (الأحدث أولاً) —
     من غير الـ predictions/historical الكاملة، عشان الـ dropdown يكون سريع.
+
+    Deliberately NOT gated behind an active subscription or insights_enabled —
+    this is just a list of what you've already run; only opening the full
+    detail (GET /forecasts/{id}) requires an Insights-capable plan.
     """
-    docs = (
-        db.collection("users").document(user["uid"])
-          .collection("forecasts")
-          .order_by("created_at", direction=firestore.Query.DESCENDING)
-          .limit(limit)
-          .stream()
-    )
-    items = []
-    for d in docs:
-        data = d.to_dict()
-        created_at = data.get("created_at")
-        items.append({
-            "id":         d.id,
-            "created_at": created_at.isoformat() if created_at else None,
-            "months":     data.get("months"),
-            "model_id":   data.get("model_id"),
-            "model_name": data.get("model_name"),
-            "val_rmse":   data.get("val_rmse"),
-        })
-    return JSONResponse({"forecasts": items})
+    try:
+        docs = (
+            db.collection("users").document(user["uid"])
+              .collection("forecasts")
+              .order_by("created_at", direction=firestore.Query.DESCENDING)
+              .limit(limit)
+              .stream()
+        )
+        items = []
+        for d in docs:
+            data = d.to_dict()
+            created_at = data.get("created_at")
+            items.append({
+                "id":         d.id,
+                "created_at": created_at.isoformat() if created_at else None,
+                "months":     data.get("months"),
+                "model_id":   data.get("model_id"),
+                "model_name": data.get("model_name"),
+                "val_rmse":   data.get("val_rmse"),
+            })
+        return JSONResponse({"forecasts": items})
+    except Exception as exc:
+        logger.error(f"GET /forecasts failed for uid={user['uid']}: {exc}")
+        raise HTTPException(500, f"Couldn't load your forecast history: {exc}")
 
 
 @app.get("/forecasts/{forecast_id}", summary="Get full data for one saved forecast (predictions + historical) — requires a plan with Insights enabled")
@@ -1245,18 +1255,25 @@ def billing_status(user=Depends(verify_user)):
         "trial_available": not billing.has_used_trial(db, user["uid"]),
     }
     if active:
-        usage = billing.get_usage(db, user["uid"], sub["cycle_id"])
         plan = PLANS[sub["plan"]]
-        response["usage"] = {
-            "trainings_used": usage.get("trainings_used", 0),
-            "trainings_limit": plan["max_trainings"],
-            "data_rows_used": usage.get("data_rows_used", 0),
-            "data_rows_limit": plan["max_data_rows_per_month"],
-            "forecast_points_used": usage.get("forecast_points_used", 0),
-            "forecast_points_limit": plan["max_forecast_points_per_month"],
-            "models_used": count_models(user["uid"]),
-            "models_limit": plan["max_models"],
-        }
+        try:
+            usage = billing.get_usage(db, user["uid"], sub["cycle_id"])
+            response["usage"] = {
+                "trainings_used": usage.get("trainings_used", 0),
+                "trainings_limit": plan["max_trainings"],
+                "data_rows_used": usage.get("data_rows_used", 0),
+                "data_rows_limit": plan["max_data_rows_per_month"],
+                "forecast_points_used": usage.get("forecast_points_used", 0),
+                "forecast_points_limit": plan["max_forecast_points_per_month"],
+                "models_used": count_models(user["uid"]),
+                "models_limit": plan["max_models"],
+            }
+        except Exception as exc:
+            # Never let a usage-counting hiccup take down the whole billing
+            # status response — insights_enabled/forecast_horizon_options
+            # below (what actually gates the UI) must still come through.
+            logger.error(f"billing_status usage block failed for uid={user['uid']}: {exc}")
+            response["usage"] = None
         response["insights_enabled"] = plan.get("insights_enabled", False)
         response["forecast_horizon_options"] = forecast_horizon_options(plan)
     country = get_user_country(user["uid"])
@@ -1305,13 +1322,10 @@ class SubscribeRequest(BaseModel):
 
 class CheckoutRequest(BaseModel):
     plan_id: str
-    # ISO 3166-1 alpha-2 country code — used only to (a) show the customer
-    # an approximate price in their own currency on the receipt, and (b)
-    # pass along to Paymob's fraud/3D-Secure billing_data. It does NOT pick
-    # a different currency or integration to charge through — this Paymob
-    # account has exactly one integration, always charged in
-    # settings.BASE_CURRENCY (see config.py).
-    country: str = "OTHER"
+    # Optional override — normally we use the country already saved on the
+    # account (set from the dashboard's "Country & Currency" tab). Only
+    # needed if the account has no saved country yet.
+    country: Optional[str] = None
 
 
 @app.post(
@@ -1351,28 +1365,42 @@ async def subscribe(body: CheckoutRequest, user=Depends(verify_user)):
 
     plan = PLANS[body.plan_id]
     email = user.get("email", "unknown@local.test")
-    country = (body.country or "OTHER").upper()
+
+    # Country comes from the account's saved profile (set in the dashboard's
+    # "Country & Currency" tab) — no more re-picking it at checkout. `body.country`
+    # is only a fallback for an account that somehow has none saved yet.
+    country = (body.country or get_user_country(user["uid"]) or "OTHER").upper()
     if country not in settings.DISPLAY_CURRENCIES:
         country = "OTHER"
 
-    # Actual charge ALWAYS happens in settings.BASE_CURRENCY through the
-    # single configured integration — the country only changes what the
-    # customer sees as an approximate converted price on the receipt.
     amount_base = plan["price_egp"]
     display = settings.display_price(amount_base, country)
 
+    # What we actually send to Paymob. If CHARGE_IN_DISPLAY_CURRENCY is on
+    # (see config.py), the customer is charged the converted amount in
+    # their own currency, through the same single PAYMOB_INTEGRATION_ID —
+    # ⚠️ confirm with Paymob support that this integration accepts multiple
+    # settlement currencies before relying on this in production. If it
+    # doesn't, flip CHARGE_IN_DISPLAY_CURRENCY off to always charge
+    # settings.BASE_CURRENCY instead (the display price still shows the
+    # customer their local-currency equivalent either way).
+    if settings.CHARGE_IN_DISPLAY_CURRENCY:
+        charge_amount, charge_currency = display["amount"], display["currency"]
+    else:
+        charge_amount, charge_currency = amount_base, settings.BASE_CURRENCY
+
     try:
         result = await paymob.create_payment_intent(
-            amount_cents=int(round(amount_base * 100)),
+            amount_cents=int(round(charge_amount * 100)),
             billing_email=email,
             integration_id=settings.PAYMOB_INTEGRATION_ID,
-            currency=settings.BASE_CURRENCY,
+            currency=charge_currency,
             country=country,
         )
     except PaymobNotConfigured as exc:
         raise HTTPException(503, str(exc))
     except Exception as exc:
-        logger.error(f"Paymob request failed for uid={user['uid']} (country={country}): {exc}")
+        logger.error(f"Paymob request failed for uid={user['uid']} (country={country}, currency={charge_currency}): {exc}")
         raise HTTPException(502, f"Paymob request failed: {exc}")
 
     # Remember which plan this order is for, so the webhook (which only
@@ -1383,11 +1411,13 @@ async def subscribe(body: CheckoutRequest, user=Depends(verify_user)):
             "uid": user["uid"],
             "plan_id": body.plan_id,
             "country": country,
+            "charge_currency": charge_currency,
+            "charge_amount": charge_amount,
             "created_at": firestore.SERVER_TIMESTAMP,
         })
     )
-    # Remember the chosen country on the account too, so future price
-    # displays (dashboard, plan-details) default to it automatically.
+    # Remember the chosen country on the account too, in case it came from
+    # the fallback above and wasn't already saved.
     await asyncio.to_thread(
         lambda: db.collection("users").document(user["uid"]).set({"country": country}, merge=True)
     )
@@ -1395,10 +1425,8 @@ async def subscribe(body: CheckoutRequest, user=Depends(verify_user)):
     return JSONResponse({
         "plan_id": body.plan_id,
         "country": country,
-        "currency": settings.BASE_CURRENCY,
-        "amount_charged": round(amount_base, 2),
-        "display_currency": display["currency"],
-        "display_amount": display["amount"],
+        "currency": charge_currency,
+        "amount_charged": round(charge_amount, 2),
         "order_id": result["order_id"],
         "checkout_url": result["iframe_url"],
     })

@@ -247,6 +247,14 @@ PLAN_FEATURE_EXPLANATIONS = {
             "planning decisions, not for reading charts."
         ),
     },
+    "advanced_forecasting": {
+        "title": "Advanced forecasting capabilities",
+        "body": (
+            "Extra modeling techniques ForecastingIQ applies on top of the standard forecast — "
+            "tuned for more complex sales patterns (multiple seasonal cycles, fast-changing trends, "
+            "many products at once) that the standard forecast alone doesn't need."
+        ),
+    },
     "dashboard": {
         "title": "Dashboard",
         "body": "A visual dashboard where you can review your forecasts, track model accuracy, and manage your account.",
@@ -391,6 +399,18 @@ class Settings:
     def currency_options(self) -> dict:
         """Full list for the sign-up country/currency picker."""
         return self.DISPLAY_CURRENCIES
+
+    # Charging currency mode:
+    #   - True  (default, per current request): the customer is actually
+    #     charged in the local currency they picked (still through the one
+    #     PAYMOB_INTEGRATION_ID). ⚠️ This only works if that integration is
+    #     configured on Paymob's side to accept multiple settlement
+    #     currencies — confirm this with Paymob support. If Paymob rejects
+    #     a currency other than BASE_CURRENCY, set this to False.
+    #   - False: always charge in BASE_CURRENCY regardless of the
+    #     customer's chosen display currency (the safest option for a
+    #     single-currency Paymob integration).
+    CHARGE_IN_DISPLAY_CURRENCY: bool = os.getenv("CHARGE_IN_DISPLAY_CURRENCY", "true").lower() == "true"
 
     # ── Rate limiting ────────────────────────────────────────────────────
     # Protects /train and /forecast from being hammered (by a bot, a bug in

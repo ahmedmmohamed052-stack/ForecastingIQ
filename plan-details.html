@@ -214,6 +214,23 @@ async function loadPlanDetails() {
     const explain = d.feature_explanations || {};
     const trialAvailable = d.trial_available; // null if not logged in yet
 
+    // Figure out, for each plan-gated boolean feature, which OTHER plans in
+    // the lineup do include it — so a plan that lacks something can tell
+    // the customer exactly where to find it instead of just hiding the row.
+    function plansWithFeature(flagKey) {
+      return d.plans.filter(p => p.id !== plan.id && p[flagKey]).map(p => p.name);
+    }
+    function boolRow(icon, explainKey, flagKey) {
+      const ex = explain[explainKey];
+      if (!ex) return null;
+      const included = !!plan[flagKey];
+      const otherPlans = included ? [] : plansWithFeature(flagKey);
+      const limit = included
+        ? "✅ Included"
+        : (otherPlans.length ? `❌ Not on ${plan.name} — available on ${otherPlans.join(' & ')}` : "❌ Not included");
+      return { icon, t: ex.title, b: ex.body, limit, muted: !included };
+    }
+
     const rows = [
       explain.data_rows && { icon: "📄", t: explain.data_rows.title, b: explain.data_rows.body, limit: `${plan.max_data_rows_per_month.toLocaleString()} rows/month` },
       explain.trainings && { icon: "🏋️", t: explain.trainings.title, b: explain.trainings.body, limit: `${plan.max_trainings}/month` },
@@ -221,13 +238,13 @@ async function loadPlanDetails() {
       explain.forecast_points && { icon: "🔮", t: explain.forecast_points.title, b: explain.forecast_points.body, limit: `${plan.max_forecast_points_per_month.toLocaleString()}/month` },
       explain.forecast_horizon && { icon: "📆", t: explain.forecast_horizon.title, b: explain.forecast_horizon.body, limit: (plan.forecast_horizon_options || [plan.max_forecast_months]).join('/') + ' months' },
       explain.historical_data && { icon: "🗂️", t: explain.historical_data.title, b: explain.historical_data.body, limit: `up to ${plan.max_historical_months} months` },
-      plan.product_level_forecasting && explain.product_level && { icon: "🏷️", t: explain.product_level.title, b: explain.product_level.body, limit: "included" },
-      explain.insights && { icon: "💼", t: explain.insights.title, b: explain.insights.body, limit: plan.insights_enabled ? "included" : "not included on this plan" },
-      explain.dashboard && { icon: "📊", t: explain.dashboard.title, b: explain.dashboard.body, limit: "included" },
-      explain.data_export && { icon: "⬇️", t: explain.data_export.title, b: explain.data_export.body, limit: "included" },
-      plan.advanced_forecasting && explain.advanced_forecasting && { icon: "✨", t: explain.advanced_forecasting.title, b: explain.advanced_forecasting.body, limit: "included" },
+      boolRow("🏷️", "product_level", "product_level_forecasting"),
+      boolRow("✨", "advanced_forecasting", "advanced_forecasting"),
+      boolRow("💼", "insights", "insights_enabled"),
+      explain.dashboard && { icon: "📊", t: explain.dashboard.title, b: explain.dashboard.body, limit: "✅ Included" },
+      explain.data_export && { icon: "⬇️", t: explain.data_export.title, b: explain.data_export.body, limit: "✅ Included" },
     ].filter(Boolean).map(r => `
-      <div class="feature-row">
+      <div class="feature-row" style="${r.muted ? 'opacity:.65;' : ''}">
         <div class="feature-icon">${r.icon}</div>
         <div class="feature-text">
           <div class="ft-title">${r.t}</div>
@@ -253,14 +270,11 @@ async function loadPlanDetails() {
         ${rows}
 
         ${!isTrial ? `
-        <div class="section-label" style="border-top:1px solid rgba(255,255,255,.08); padding-top:16px;">Where are you paying from?</div>
-        <select id="country-select" style="width:100%; padding:12px; border-radius:10px; border:1px solid rgba(124,58,255,.3); background:#0b0f1e; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:12px; margin-bottom:6px;">
-          ${Object.entries(d.currencies || {}).map(([code, info]) =>
-              `<option value="${code}" ${code === myCountry ? 'selected' : ''}>${info.label} (${info.currency})</option>`
-            ).join('')
-          }
-        </select>
-        <div style="font-size:10px; opacity:.55; margin-bottom:6px;">Shown for your reference — you're always billed the same amount in ${d.base_currency}, our supported settlement currency.</div>
+        <div class="section-label" style="border-top:1px solid rgba(255,255,255,.08); padding-top:16px;">Billing currency</div>
+        <div style="font-size:12px; padding:10px 12px; border-radius:10px; border:1px solid rgba(124,58,255,.2); background:rgba(124,58,255,.05); margin-bottom:6px;">
+          ${myCountry ? `You'll be charged in <strong>${(d.currencies[myCountry] || d.currencies['OTHER']).currency}</strong>, based on the country set on your account.` : `No country set yet — you'll be charged in ${d.base_currency} by default.`}
+          <a href="/dashboard#country" style="color:var(--a3); text-decoration:none;">Change it in your dashboard →</a>
+        </div>
         <div id="gateway-warn"></div>
         ` : ''}
 
@@ -288,8 +302,7 @@ async function loadPlanDetails() {
 
     document.getElementById("cta-btn").onclick = () => {
       if (isTrial) { doStartTrial(plan.id); return; }
-      const country = document.getElementById('country-select').value;
-      doSubscribe(plan.id, country);
+      doSubscribe(plan.id);
     };
   } catch (e) {
     content.innerHTML = `<div class="skeleton" style="color:#f87171;">${e.message}</div>`;
@@ -297,9 +310,11 @@ async function loadPlanDetails() {
 }
 
 // The ONLY place that calls /billing/subscribe — reached exclusively by
-// clicking the CTA on THIS page, after reading the plan details above and
-// picking which Paymob country/currency integration to charge through.
-async function doSubscribe(planId, country) {
+// clicking the CTA on THIS page. Country/currency is no longer picked
+// here — it comes from whatever the account has saved (see the
+// dashboard's "Country & Currency" tab); the backend falls back to
+// settings.BASE_CURRENCY if the account has none saved yet.
+async function doSubscribe(planId) {
   const btn = document.getElementById("cta-btn");
   const status = document.getElementById("cta-status");
   btn.disabled = true;
@@ -310,7 +325,7 @@ async function doSubscribe(planId, country) {
     const res = await fetchWithTimeout(`${API}/billing/subscribe`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_id: planId, country: country }),
+      body: JSON.stringify({ plan_id: planId }),
     }, 15000);
     const d = await res.json();
     if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
