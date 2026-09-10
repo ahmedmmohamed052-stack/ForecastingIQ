@@ -19,6 +19,7 @@ import json
 import logging
 from contextlib import contextmanager
 
+import numpy as np
 import psycopg2
 import psycopg2.extras
 from psycopg2.pool import SimpleConnectionPool
@@ -28,6 +29,25 @@ from config import settings
 logger = logging.getLogger("forecastiq")
 
 _pool: SimpleConnectionPool | None = None
+
+
+def _to_native(obj):
+    """Recursively converts numpy scalars/arrays (and pandas NaT/NaN edge
+    cases) inside dicts/lists into plain Python types. sklearn/numpy metrics
+    (np.float64, np.int64, ...) aren't understood by psycopg2's default
+    adapter — it silently falls back to str(obj), which produces literal
+    text like `np.float64(0.1234)` in the SQL itself and breaks the query.
+    json.dumps() has the same problem for the predictions/historical
+    payloads, so this is used everywhere a numpy value might sneak in."""
+    if isinstance(obj, dict):
+        return {k: _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_native(v) for v in obj]
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
 
 
 def _get_pool() -> SimpleConnectionPool:
@@ -108,6 +128,11 @@ def save_forecast(
     """Saves one forecast run. Returns the new row's id (str) — handed
     straight to the frontend as X-Forecast-Id, same as the old Firestore
     doc id was."""
+    metrics = _to_native(metrics)
+    sch = _to_native(sch)
+    predictions = _to_native(predictions)
+    historical = _to_native(historical)
+
     with _cursor(commit=True) as cur:
         cur.execute(
             """

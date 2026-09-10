@@ -1049,7 +1049,7 @@ async def forecast_endpoint(
             # message (truncated) when it didn't, so the UI can actually
             # tell the customer their forecast wasn't saved to history
             # instead of Insights just looking mysteriously disabled.
-            "X-Forecast-Save-Error": (save_error or "")[:200],
+            "X-Forecast-Save-Error": " ".join((save_error or "").split())[:200],
             # Browsers block JS (fetch) from reading response headers unless
             # the server explicitly allows it — without this, dashboard.html
             # couldn't read X-Forecast-Id to build the "View Insights" link.
