@@ -319,22 +319,10 @@ tr:hover td{background:rgba(124,58,255,.04);}
             <div class="drop-fname" id="fn-fc"></div>
           </div>
           <div class="months-label">Forecast Horizon</div>
-          <div class="months-selector">
+          <div class="months-selector" id="months-selector">
             <div class="month-opt">
               <input type="radio" name="fc-months" id="m3" value="3" checked/>
               <label for="m3"><span class="month-opt-num">3</span><span class="month-opt-lbl">months</span></label>
-            </div>
-            <div class="month-opt">
-              <input type="radio" name="fc-months" id="m6" value="6"/>
-              <label for="m6"><span class="month-opt-num">6</span><span class="month-opt-lbl">months</span></label>
-            </div>
-            <div class="month-opt">
-              <input type="radio" name="fc-months" id="m9" value="9"/>
-              <label for="m9"><span class="month-opt-num">9</span><span class="month-opt-lbl">months</span></label>
-            </div>
-            <div class="month-opt">
-              <input type="radio" name="fc-months" id="m12" value="12"/>
-              <label for="m12"><span class="month-opt-num">12</span><span class="month-opt-lbl">months</span></label>
             </div>
           </div>
           <div class="prog-wrap"><div class="prog-bar" id="pb-fc"></div></div>
@@ -465,6 +453,10 @@ async function logout() {
 }
 
 // ── Billing / Subscription ──────────────────────────────────────────────────
+let myCountry = null;
+let myCurrency = null;
+let myInsightsEnabled = false;
+
 async function fetchBillingStatus() {
   const box = document.getElementById('st-billing');
   try {
@@ -492,11 +484,51 @@ async function fetchBillingStatus() {
     } else {
       document.getElementById('models-usage').textContent = '';
     }
+
+    myCountry = d.country || null;
+    myCurrency = d.currency || null;
+    myInsightsEnabled = !!d.insights_enabled || d.plan === 'dev-bypass';
+    renderMonthsSelector(d.forecast_horizon_options || [3]);
+    applyInsightsGating();
   } catch (e) {
     box.className = "status-box sb-idle";
     box.innerHTML = `<span class="sb-icon">❌</span><span>${e.message}</span>`;
   }
   renderPlans();
+}
+
+// ── Forecast horizon options (plan-dependent) ───────────────────────────────
+function renderMonthsSelector(options) {
+  const wrap = document.getElementById('months-selector');
+  wrap.innerHTML = options.map((m, i) => `
+    <div class="month-opt">
+      <input type="radio" name="fc-months" id="m${m}" value="${m}" ${i === 0 ? 'checked' : ''}/>
+      <label for="m${m}"><span class="month-opt-num">${m}</span><span class="month-opt-lbl">months</span></label>
+    </div>
+  `).join('');
+}
+
+// ── Insights access gating (Growth/Scale only) ──────────────────────────────
+function applyInsightsGating() {
+  const btn = document.getElementById('btn-insights');
+  if (btn) {
+    if (!myInsightsEnabled) {
+      btn.title = "Insights is a Growth/Scale feature — upgrade your plan to unlock it.";
+    } else {
+      btn.title = "";
+    }
+  }
+  fetchForecastHistory(); // re-render history rows with the current gating state
+}
+
+// Converts a plan's base EGP price into the signed-in user's display
+// currency (set at sign-up, see myCountry/myCurrency) — purely cosmetic;
+// actual billing always happens in EGP through the one Paymob integration.
+function formatPrice(priceEgp, plansResponse) {
+  const currencies = (plansResponse && plansResponse.currencies) || {};
+  const info = currencies[myCountry] || currencies['OTHER'] || { currency: 'EGP', rate_from_base: 1 };
+  const amount = Math.round(priceEgp * (info.rate_from_base ?? 1));
+  return `${amount.toLocaleString()} ${info.currency}`;
 }
 
 // Cached from the last /billing/plans call so the Plan Details modal can
@@ -526,8 +558,8 @@ async function renderPlans() {
       <div style="position:relative; border:1px solid ${p.most_popular ? 'rgba(124,58,255,.6)' : 'rgba(124,58,255,.2)'}; border-radius:12px; padding:14px; background:rgba(255,255,255,.02);">
         ${p.most_popular ? `<div style="position:absolute; top:-10px; right:12px; background:linear-gradient(90deg,var(--accent1,#7c3aff),var(--accent2,#06b6d4)); color:#fff; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:3px 8px; border-radius:20px;">Most Popular</div>` : ''}
         <div style="font-size:12px; opacity:.7; text-transform:uppercase; letter-spacing:.06em;">${p.name}</div>
-        <div style="font-size:22px; font-weight:700; margin:6px 0;">$${p.price_usd}<span style="font-size:11px; opacity:.6;">/mo</span></div>
-        <div style="font-size:11px; opacity:.7; margin-bottom:10px;">Forecast up to ${p.max_forecast_months} months ahead</div>
+        <div style="font-size:22px; font-weight:700; margin:6px 0;">${formatPrice(p.price_egp, d)}<span style="font-size:11px; opacity:.6;">/mo</span></div>
+        <div style="font-size:11px; opacity:.7; margin-bottom:10px;">Forecast up to ${p.max_forecast_months} months ahead${p.insights_enabled ? ' · Insights included' : ''}</div>
         <a href="/plan-details?plan=${p.id}&mode=subscribe" class="btn-insights" style="width:100%; justify-content:center; margin:0 0 8px; text-decoration:none;">Subscribe</a>
         ${d.trial_available === false
           ? `<button class="btn-insights" style="width:100%; justify-content:center; margin:0; opacity:.5; cursor:not-allowed;" disabled title="You've already used your free trial">Trial used</button>`
@@ -759,7 +791,7 @@ async function doForecast() {
     thead.innerHTML = '<tr>'+rows[0].map(h=>`<th>${h}</th>`).join('')+'</tr>';
     tbody.innerHTML = rows.slice(1).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
     document.getElementById('res-fc').classList.add('on');
-    document.getElementById('btn-insights').disabled = !lastForecastId;
+    document.getElementById('btn-insights').disabled = !lastForecastId || !myInsightsEnabled;
     setStatus('st-fc','success','✅',`Forecast complete — ${months}-month predictions ready.`);
     fetchForecastHistory();
     fetchBillingStatus();
@@ -808,13 +840,16 @@ function renderHistory(items) {
     list.innerHTML = `<div class="empty-note">No forecasts run yet — run one above and it'll show up here.</div>`;
     return;
   }
+  const insightsCell = f => myInsightsEnabled
+    ? `<a class="hist-view" href="/insights?forecast_id=${encodeURIComponent(f.id)}" target="_blank" rel="noopener">📊 View Insights</a>`
+    : `<a class="hist-view" href="/plan-details?plan=growth&mode=subscribe" style="opacity:.65;" title="Insights is a Growth/Scale feature — click to upgrade">🔒 Upgrade for Insights</a>`;
   list.innerHTML = items.map(f => `
     <div class="hist-row">
       <div class="hist-info">
         <div class="hist-title">${f.model_name || 'Forecast'} · ${f.months ?? '—'}-month horizon</div>
         <div class="hist-meta">Val RMSE ${f.val_rmse ?? '—'} · ${f.created_at ? new Date(f.created_at).toLocaleString() : ''}</div>
       </div>
-      <a class="hist-view" href="/insights?forecast_id=${encodeURIComponent(f.id)}" target="_blank" rel="noopener">📊 View Insights</a>
+      ${insightsCell(f)}
       <button class="model-del" onclick="deleteForecast('${f.id}')">🗑</button>
     </div>
   `).join('');

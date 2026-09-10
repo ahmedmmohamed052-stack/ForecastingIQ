@@ -74,7 +74,7 @@ PLANS = {
         # subscription-activation flow end-to-end without paying full
         # price. Remove this before real launch so customers never see it.
         "name": "Test Plan (remove before launch)",
-        "price_usd": 0.50,
+        "price_egp": 25.0,
         "duration_days": 1,
         "most_popular": False,
         "tagline": "Internal — for testing the Paymob checkout flow only.",
@@ -86,11 +86,12 @@ PLANS = {
         "max_models": 2,
         "product_level_forecasting": True,
         "advanced_forecasting": False,
+        "insights_enabled": False,
         "features": ["Dashboard", "Data export", "2 saved trained models"],
     },
     "starter": {
         "name": "Starter",
-        "price_usd": 29.0,
+        "price_egp": 1450.0,
         "duration_days": 30,
         "most_popular": False,
         "tagline": "For a single store or product line getting started with forecasting.",
@@ -102,11 +103,12 @@ PLANS = {
         "max_models": 2,
         "product_level_forecasting": True,
         "advanced_forecasting": False,
+        "insights_enabled": False,
         "features": [
             "Up to 50K data rows/month",
             "10 training runs/month",
             "10K forecasted data points/month",
-            "Up to 3-month forecast horizon",
+            "3-month forecast horizon",
             "Up to 12 months of historical data",
             "Up to 2 saved trained models",
             "Product-level forecasting",
@@ -116,7 +118,7 @@ PLANS = {
     },
     "growth": {
         "name": "Growth",
-        "price_usd": 79.0,
+        "price_egp": 3900.0,
         "duration_days": 30,
         "most_popular": True,
         "tagline": "For growing businesses forecasting across many products or locations.",
@@ -128,20 +130,22 @@ PLANS = {
         "max_models": 4,
         "product_level_forecasting": True,
         "advanced_forecasting": True,
+        "insights_enabled": True,
         "features": [
             "Up to 500K data rows/month",
             "50 training runs/month",
             "100K forecasted data points/month",
-            "Up to 12-month forecast horizon",
+            "Choice of 3, 6, or 12-month forecast horizon",
             "Up to 36 months of historical data",
             "Up to 4 saved trained models",
+            "Business Insights dashboard",
             "Advanced forecasting capabilities",
             "Data export",
         ],
     },
     "scale": {
         "name": "Scale",
-        "price_usd": 149.0,
+        "price_egp": 7300.0,
         "duration_days": 30,
         "most_popular": False,
         "tagline": "For high-volume operations that need long-horizon, large-scale forecasting.",
@@ -153,18 +157,34 @@ PLANS = {
         "max_models": 6,
         "product_level_forecasting": True,
         "advanced_forecasting": True,
+        "insights_enabled": True,
         "features": [
             "Up to 2M data rows/month",
             "200 training runs/month",
             "500K forecasted data points/month",
-            "Up to 24-month forecast horizon",
+            "Choice of 3, 6, 12, 18, or 24-month forecast horizon",
             "60+ months of historical data",
             "Up to 6 saved trained models",
+            "Business Insights dashboard",
             "Advanced forecasting capabilities",
             "Data export",
         ],
     },
 }
+
+# Every forecast horizon the app can ever offer, longest ceiling first won't
+# matter here — this is the full menu. A plan only offers the subset of
+# these that is <= its own max_forecast_months (see forecast_horizon_options
+# below), so a 3-month plan only ever sees "3", a 12-month plan sees
+# "3 / 6 / 12", and a 24-month plan sees the full "3 / 6 / 12 / 18 / 24".
+ALL_FORECAST_HORIZON_OPTIONS = [3, 6, 12, 18, 24]
+
+
+def forecast_horizon_options(plan: dict) -> list:
+    """Which forecast horizons (in months) a given plan is allowed to
+    request, derived from its max_forecast_months ceiling."""
+    ceiling = plan["max_forecast_months"]
+    return [m for m in ALL_FORECAST_HORIZON_OPTIONS if m <= ceiling] or [ceiling]
 
 # Detailed, customer-friendly explanations for the Plan Details page. Keyed
 # by the generic concept (not per-plan) — the frontend fills in each plan's
@@ -217,6 +237,14 @@ PLAN_FEATURE_EXPLANATIONS = {
             "for future forecasts without retraining. Your plan caps how many trained models you "
             "can keep at once — delete an old one from the dashboard to free up a slot, or upgrade "
             "your plan for more."
+        ),
+    },
+    "insights": {
+        "title": "Business Insights dashboard",
+        "body": (
+            "A plain-language breakdown of every forecast you run — expected demand trends, "
+            "seasonal patterns, and how much to trust the numbers — built for making buying and "
+            "planning decisions, not for reading charts."
         ),
     },
     "dashboard": {
@@ -308,52 +336,61 @@ class Settings:
     def dev_bypass_enabled(self) -> bool:
         return bool(self.DEV_ACCESS_PASSWORD) and not self.is_production
 
-    # ── Paymob (payment gateway — Egypt + Gulf/Middle East) ──────────────
+    # ── Paymob (payment gateway — single merchant integration) ───────────
     # All blank until you have real credentials from your Paymob dashboard.
     # See paymob.py — every function checks `settings.paymob_configured`
     # and returns a clear "not configured yet" error instead of crashing,
     # so the rest of the app works fine without these.
     #
-    # Paymob operates (and settles) in several MENA markets, each under its
-    # own currency and its own INTEGRATION_ID on your Paymob account — you
-    # need one integration per currency you want to accept, even though
-    # it's a single merchant account. Ask your Paymob account
-    # manager/dashboard for the integration id for each currency you plan
-    # to support; leave a country's PAYMOB_INTEGRATION_ID_<CODE> blank if
-    # you're not accepting that currency yet, and it's simply hidden from
-    # the country picker on the Plan Details page instead of erroring.
+    # ⚠️ Per Paymob support: this account has exactly ONE integration id,
+    # charging in ONE currency (BASE_CURRENCY, default EGP). There is no
+    # per-country/per-currency integration — every subscription, no matter
+    # which country the customer selects, is actually charged through this
+    # single integration in this single currency. USD is never charged (or
+    # shown) anywhere — Paymob does not settle in USD on this account.
+    #
+    # DISPLAY_CURRENCIES below is ONLY for showing customers an approximate
+    # price in their own local currency at sign-up / on the pricing page —
+    # it does not change what currency they're actually billed in.
     PAYMOB_API_KEY: str = os.getenv("PAYMOB_API_KEY", "")
     PAYMOB_IFRAME_ID: str = os.getenv("PAYMOB_IFRAME_ID", "")
     PAYMOB_HMAC_SECRET: str = os.getenv("PAYMOB_HMAC_SECRET", "")
+    PAYMOB_INTEGRATION_ID: str = os.getenv("PAYMOB_INTEGRATION_ID", "")
+    BASE_CURRENCY: str = os.getenv("PAYMOB_BASE_CURRENCY", "EGP")
 
-    # country code -> (currency, integration_id env var, USD conversion rate).
+    # country code -> label + local currency + display conversion rate
+    # (units of local currency per 1 unit of BASE_CURRENCY). Display only.
     # Rates are NOT a live lookup — set them from your bank/Paymob dashboard
-    # and update manually whenever they meaningfully move, same as before.
-    PAYMOB_COUNTRIES: dict = {
-        "EG": {"label": "Egypt",         "currency": "EGP", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_EG", os.getenv("PAYMOB_INTEGRATION_ID", "")), "usd_rate": _get_float("USD_TO_EGP_RATE", 49.0)},
-        "SA": {"label": "Saudi Arabia",  "currency": "SAR", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_SA", ""), "usd_rate": _get_float("USD_TO_SAR_RATE", 3.75)},
-        "AE": {"label": "UAE",           "currency": "AED", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_AE", ""), "usd_rate": _get_float("USD_TO_AED_RATE", 3.67)},
-        "OM": {"label": "Oman",          "currency": "OMR", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_OM", ""), "usd_rate": _get_float("USD_TO_OMR_RATE", 0.385)},
-        "KW": {"label": "Kuwait",        "currency": "KWD", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_KW", ""), "usd_rate": _get_float("USD_TO_KWD_RATE", 0.307)},
-        "QA": {"label": "Qatar",         "currency": "QAR", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_QA", ""), "usd_rate": _get_float("USD_TO_QAR_RATE", 3.64)},
-        "BH": {"label": "Bahrain",       "currency": "BHD", "integration_id": os.getenv("PAYMOB_INTEGRATION_ID_BH", ""), "usd_rate": _get_float("USD_TO_BHD_RATE", 0.376)},
+    # and update manually whenever they meaningfully move.
+    DISPLAY_CURRENCIES: dict = {
+        "EG": {"label": "Egypt",          "currency": "EGP", "rate_from_base": 1.0},
+        "SA": {"label": "Saudi Arabia",   "currency": "SAR", "rate_from_base": _get_float("EGP_TO_SAR_RATE", 0.0765)},
+        "AE": {"label": "UAE",            "currency": "AED", "rate_from_base": _get_float("EGP_TO_AED_RATE", 0.0749)},
+        "OM": {"label": "Oman",           "currency": "OMR", "rate_from_base": _get_float("EGP_TO_OMR_RATE", 0.00786)},
+        "KW": {"label": "Kuwait",         "currency": "KWD", "rate_from_base": _get_float("EGP_TO_KWD_RATE", 0.00627)},
+        "QA": {"label": "Qatar",          "currency": "QAR", "rate_from_base": _get_float("EGP_TO_QAR_RATE", 0.0743)},
+        "BH": {"label": "Bahrain",        "currency": "BHD", "rate_from_base": _get_float("EGP_TO_BHD_RATE", 0.00767)},
+        "JO": {"label": "Jordan",         "currency": "JOD", "rate_from_base": _get_float("EGP_TO_JOD_RATE", 0.0145)},
+        "GB": {"label": "United Kingdom", "currency": "GBP", "rate_from_base": _get_float("EGP_TO_GBP_RATE", 0.0163)},
+        "OTHER": {"label": "Other / International", "currency": "EGP", "rate_from_base": 1.0},
     }
 
     @property
     def paymob_configured(self) -> bool:
-        # "Configured" overall just means Egypt works (the original,
-        # always-expected setup) — individual Gulf countries light up
-        # independently as you add their integration ids, checked per
-        # country via paymob_countries_available below.
-        return bool(self.PAYMOB_API_KEY and self.PAYMOB_IFRAME_ID and self.PAYMOB_COUNTRIES["EG"]["integration_id"])
+        return bool(self.PAYMOB_API_KEY and self.PAYMOB_IFRAME_ID and self.PAYMOB_INTEGRATION_ID)
+
+    def display_price(self, price_egp: float, country: str) -> dict:
+        """Converts a BASE_CURRENCY (EGP) price into the customer's local
+        currency for DISPLAY ONLY — actual billing always happens in
+        BASE_CURRENCY through the single PAYMOB_INTEGRATION_ID."""
+        info = self.DISPLAY_CURRENCIES.get((country or "").upper(), self.DISPLAY_CURRENCIES["OTHER"])
+        amount = round(price_egp * info["rate_from_base"], 2)
+        return {"currency": info["currency"], "amount": amount}
 
     @property
-    def paymob_countries_available(self) -> dict:
-        """Only the countries that actually have an integration id set —
-        what the Plan Details page's country picker should offer."""
-        if not (self.PAYMOB_API_KEY and self.PAYMOB_IFRAME_ID):
-            return {}
-        return {code: info for code, info in self.PAYMOB_COUNTRIES.items() if info["integration_id"]}
+    def currency_options(self) -> dict:
+        """Full list for the sign-up country/currency picker."""
+        return self.DISPLAY_CURRENCIES
 
     # ── Rate limiting ────────────────────────────────────────────────────
     # Protects /train and /forecast from being hammered (by a bot, a bug in

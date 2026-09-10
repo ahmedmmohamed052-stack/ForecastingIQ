@@ -934,6 +934,20 @@
     </div>
   </div>
 
+  <div class="field" id="country-field" style="display:none;">
+    <label>
+      Country
+      <span class="label-line"></span>
+    </label>
+    <div class="field-wrap">
+      <select id="country-select" style="width:100%; background:transparent; border:none; color:inherit; font:inherit; padding:12px 40px 12px 40px; outline:none;">
+        <option value="">Loading countries...</option>
+      </select>
+      <span class="field-icon">🌍</span>
+    </div>
+    <div style="font-size:9px; opacity:.5; margin-top:4px; letter-spacing:.03em;">Sets which currency your plan pricing is shown in.</div>
+  </div>
+
   <div class="btn-row" id="btn-row">
     <button class="btn-primary" id="main-btn" onclick="login()">Login →</button>
   </div>
@@ -1164,6 +1178,7 @@
     const tokenSec     = document.getElementById('token-section');
     const apiBtn       = document.getElementById('api-btn');
     const confirmField = document.getElementById('confirm-field');
+    const countryField = document.getElementById('country-field');
     setMsg('');
 
     if (tab === 'login') {
@@ -1174,6 +1189,7 @@
       tokenSec.style.display     = 'block';
       apiBtn.style.display       = 'flex';
       confirmField.style.display = 'none';
+      countryField.style.display = 'none';
     } else {
       signupBtn.classList.add('active');
       loginBtn.classList.remove('active');
@@ -1182,6 +1198,27 @@
       tokenSec.style.display     = 'none';
       apiBtn.style.display       = 'none';
       confirmField.style.display = 'block';
+      countryField.style.display = 'block';
+      loadCountryOptions();
+    }
+  }
+
+  /* ══════════════════════════════════════════════
+     🌍  Country / currency picker (sign-up only)
+  ══════════════════════════════════════════════ */
+  let _countriesLoaded = false;
+  async function loadCountryOptions() {
+    if (_countriesLoaded) return;
+    const sel = document.getElementById('country-select');
+    try {
+      const res = await fetch(`${API_BASE}/currencies`);
+      const d = await res.json();
+      sel.innerHTML = Object.entries(d.currencies || {}).map(([code, info]) =>
+        `<option value="${code}">${info.label} (${info.currency})</option>`
+      ).join('');
+      _countriesLoaded = true;
+    } catch (err) {
+      sel.innerHTML = `<option value="OTHER">Other / International</option>`;
     }
   }
 
@@ -1235,6 +1272,20 @@
     }
   }
 
+  async function saveUserCountry(user, country) {
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`${API_BASE}/profile/country`, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body   : JSON.stringify({ country }),
+      });
+      if (!res.ok) console.warn('Country save warning:', await res.text());
+    } catch (err) {
+      console.error('Country save failed:', err);
+    }
+  }
+
   /* ══════════════════════════════════════════════
      ✅  Sign Up
   ══════════════════════════════════════════════ */
@@ -1242,6 +1293,7 @@
     const email    = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
     const confirm  = document.getElementById('confirm-password').value;
+    const country  = document.getElementById('country-select').value || 'OTHER';
     if (!email || !password || !confirm) { setMsg('❌ Please fill in all fields', 'error'); return; }
     if (password !== confirm) {
       setMsg('❌ Passwords do not match', 'error');
@@ -1254,6 +1306,7 @@
       const cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.sendEmailVerification();
       await saveUserToDB(cred.user.uid, cred.user.email, cred.user.displayName);
+      await saveUserCountry(cred.user, country);
       setMsg('📩 Account created! Check your email to verify.', 'success');
     } catch (err) {
       setMsg('❌ ' + err.message, 'error');

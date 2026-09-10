@@ -86,9 +86,9 @@ async def get_payment_key(
     country: str = "N/A",
 ) -> str:
     """Step 3: request the payment token used to open the iframe.
-    `integration_id` and `currency` must match one of your Paymob account's
-    configured integrations (one per currency/country — see
-    config.PAYMOB_COUNTRIES). Passing the customer's billing `country` (an
+    `integration_id` and `currency` are always your account's single
+    configured integration and settings.BASE_CURRENCY — see config.py.
+    Passing the customer's billing `country` (an
     ISO 3166-1 alpha-2 code, e.g. "SA", "AE") helps Paymob's fraud/3D-Secure
     checks recognize a legitimate Gulf cardholder instead of just assuming
     Egypt."""
@@ -129,10 +129,8 @@ async def create_payment_intent(
     """
     One-shot helper: runs all 3 Paymob steps and returns the iframe URL
     the frontend should redirect the user to. `integration_id` and
-    `currency` select which of your Paymob account's country/currency
-    integrations to charge through — see config.PAYMOB_COUNTRIES and
-    main.py's /billing/subscribe, which looks these up from the
-    customer's chosen country.
+    `currency` are always settings.PAYMOB_INTEGRATION_ID and
+    settings.BASE_CURRENCY — see main.py's /billing/subscribe.
     """
     _require_configured()
     auth_token = await get_auth_token()

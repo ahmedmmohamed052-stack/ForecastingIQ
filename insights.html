@@ -216,6 +216,16 @@ async function loadForecast(id) {
     const headers = await getAuthHeaders();
     const res = await fetchWithTimeout(`${API}/forecasts/${encodeURIComponent(id)}`, { headers });
     const d = await res.json();
+    if (res.status === 403) {
+      content.innerHTML = `
+        <div class="err-box" style="text-align:center; padding:36px 24px;">
+          <div style="font-size:28px; margin-bottom:10px;">🔒</div>
+          <div style="font-size:15px; margin-bottom:8px;">Business Insights isn't included in your current plan.</div>
+          <div style="font-size:12px; opacity:.7; margin-bottom:20px;">Upgrade to Growth or Scale to unlock demand trends, forecast reliability, and product-level breakdowns for every forecast you run.</div>
+          <a href="/plan-details?plan=growth&mode=subscribe" style="display:inline-block; padding:10px 20px; border-radius:9px; background:linear-gradient(135deg,var(--a4),#059669); color:#022c22; font-weight:700; text-decoration:none; font-size:12px;">View Growth Plan</a>
+        </div>`;
+      return;
+    }
     if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
     _forecastCache = d;
     render(d);
@@ -331,7 +341,7 @@ function content_inner(d, m) {
 
     <div class="kpi-grid">
       <div class="kpi-card" style="--kpi-color:${'var(--a1)'}">
-        <div class="kpi-label">Total Historical</div>
+        <div class="kpi-label">Total Past Sales</div>
         <div class="kpi-value">${fmtNum(m.totalHistorical)}</div>
         <div class="kpi-sub">across all recorded periods</div>
       </div>
@@ -346,12 +356,12 @@ function content_inner(d, m) {
         <div class="kpi-sub ${m.growthPct >= 0 ? 'up' : 'down'}">avg forecasted vs avg historical period</div>
       </div>
       <div class="kpi-card" style="--kpi-color:${'var(--a6)'}">
-        <div class="kpi-label">Model Accuracy</div>
+        <div class="kpi-label">Forecast Confidence</div>
         <div class="kpi-value">${m.accuracyPct !== null ? m.accuracyPct.toFixed(1) + '%' : '—'}</div>
-        <div class="kpi-sub">vs. naive baseline (Val RMSE ${fmtNum(d.val_rmse)})</div>
+        <div class="kpi-sub">how much more reliable this is than a simple guess</div>
       </div>
       <div class="kpi-card" style="--kpi-color:${'var(--a3)'}">
-        <div class="kpi-label">${m.hasGroups ? 'Series Forecasted' : 'Forecast Horizon'}</div>
+        <div class="kpi-label">${m.hasGroups ? 'Items Forecasted' : 'Forecast Horizon'}</div>
         <div class="kpi-value">${m.hasGroups ? m.numSeries : d.months + ' mo'}</div>
         <div class="kpi-sub">${m.hasGroups ? (m.groupCol + ' groups') : 'months ahead'}</div>
       </div>
@@ -364,13 +374,13 @@ function content_inner(d, m) {
 
     <div class="grid-2">
       <div class="panel">
-        <div class="panel-title">📈 Trend — Historical vs Forecast</div>
-        <div class="panel-desc">Solid line = actuals · Dashed line = forecast${m.hasGroups ? ' (top series shown)' : ''}</div>
+        <div class="panel-title">📈 Sales Trend — Past vs Forecast</div>
+        <div class="panel-desc">Solid line = actual sales · Dashed line = forecast${m.hasGroups ? ' (top item shown)' : ''}</div>
         <div class="chart-wrap tall"><canvas id="chart-trend"></canvas></div>
         <div class="legend-row" id="trend-legend"></div>
       </div>
       <div class="panel">
-        <div class="panel-title">${m.hasGroups ? '🥧 Forecast Share by Series' : '📊 Forecast by Period'}</div>
+        <div class="panel-title">${m.hasGroups ? '🥧 Forecast Share by Product' : '📊 Forecast by Period'}</div>
         <div class="panel-desc">${m.hasGroups ? 'Contribution to total forecasted volume' : 'Predicted value per upcoming period'}</div>
         <div class="chart-wrap tall"><canvas id="chart-share"></canvas></div>
       </div>
@@ -383,14 +393,14 @@ function content_inner(d, m) {
         <div class="chart-wrap small"><canvas id="chart-top"></canvas></div>
       </div>
       <div class="panel">
-        <div class="panel-title">📐 Model Performance</div>
-        <div class="panel-desc">How this model compares to a naive guess</div>
+        <div class="panel-title">📐 Forecast Reliability</div>
+        <div class="panel-desc">How much more you can trust this forecast vs. simply repeating last period's numbers</div>
         <div style="display:flex; flex-direction:column; gap:12px; margin-top:8px;">
-          ${perfRow('Model', d.model_name || '—')}
-          ${perfRow('Train RMSE', fmtNum(d.train_rmse))}
-          ${perfRow('Validation RMSE', fmtNum(d.val_rmse))}
-          ${perfRow('Baseline RMSE (naive)', fmtNum(d.baseline_rmse))}
-          ${perfRow('Improvement vs baseline', m.accuracyPct !== null ? m.accuracyPct.toFixed(1) + '%' : '—')}
+          ${perfRow('Forecast used', d.model_name || '—')}
+          ${perfRow('Fit to past data (lower is better)', fmtNum(d.train_rmse))}
+          ${perfRow('Accuracy on unseen data (lower is better)', fmtNum(d.val_rmse))}
+          ${perfRow('Simple-guess error (for comparison)', fmtNum(d.baseline_rmse))}
+          ${perfRow('Improvement over a simple guess', m.accuracyPct !== null ? m.accuracyPct.toFixed(1) + '%' : '—')}
         </div>
       </div>
       <div class="panel">

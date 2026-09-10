@@ -22,7 +22,7 @@ from typing import Optional
 # ⚙️ Central config — see config.py. Everything environment-dependent
 # (Firebase key path, CORS, dev password, Paymob keys, quick-train mode)
 # is read from there so this file never hardcodes anything.
-from config import settings, PLANS, PLAN_FEATURE_EXPLANATIONS
+from config import settings, PLANS, PLAN_FEATURE_EXPLANATIONS, ALL_FORECAST_HORIZON_OPTIONS, forecast_horizon_options
 
 # 📋 Logging + optional Sentry error tracking — set up before anything else
 # so every module below can just do logging.getLogger("forecastiq").
@@ -34,9 +34,9 @@ import firebase_admin
 from firebase_admin import credentials, auth, firestore
 
 # 💳 Paymob (blank/inactive until keys are set in .env — see paymob.py).
-# Covers Egypt plus Gulf/MENA countries (Saudi Arabia, UAE, Oman, Kuwait,
-# Qatar, Bahrain) — one Paymob integration per currency, see
-# config.PAYMOB_COUNTRIES.
+# Single merchant integration, single currency (settings.BASE_CURRENCY) —
+# see config.DISPLAY_CURRENCIES for the customer-facing display-only
+# currency list (does not change what's actually charged).
 import paymob
 from paymob import PaymobNotConfigured
 
@@ -693,7 +693,7 @@ def validate_upload_against_schema(df: pd.DataFrame, sch: dict) -> None:
         )
 
 
-FORECAST_HORIZON_OPTIONS = [3, 6, 9, 12]
+FORECAST_HORIZON_OPTIONS = ALL_FORECAST_HORIZON_OPTIONS  # [3, 6, 12, 18, 24] — see config.py
 
 def run_forecast(df: pd.DataFrame, bundle: dict, months: int = 3) -> pd.DataFrame:
     if months not in FORECAST_HORIZON_OPTIONS:
@@ -788,12 +788,13 @@ async def _quota_check(user: dict, kind: str, months: int = None, amount: int = 
                     "and subscribe via /billing/subscribe to use this feature."
                 )
             plan = PLANS[sub["plan"]]
-            if months > plan["max_forecast_months"]:
+            allowed = forecast_horizon_options(plan)
+            if months not in allowed:
                 raise QuotaExceeded(
-                    f"Your '{plan['name']}' plan allows forecasting up to "
-                    f"{plan['max_forecast_months']} months ahead — you "
+                    f"Your '{plan['name']}' plan supports forecasting "
+                    f"{', '.join(str(m) for m in allowed)} months ahead — you "
                     f"requested {months}. Upgrade your plan at "
-                    f"/billing/plans to forecast further out."
+                    f"/billing/plans for a longer forecast horizon."
                 )
 
         if not increment:
@@ -1119,12 +1120,29 @@ def list_forecasts(
     return JSONResponse({"forecasts": items})
 
 
-@app.get("/forecasts/{forecast_id}", summary="Get full data for one saved forecast (predictions + historical)")
+@app.get("/forecasts/{forecast_id}", summary="Get full data for one saved forecast (predictions + historical) — requires a plan with Insights enabled")
 def get_forecast(forecast_id: str, user=Depends(verify_user)):
     """
     يرجّع forecast واحد بالتفصيل (predictions + historical snapshot) —
     ده اللي insights.html بيستخدمه لبناء الصفحة من غير الحاجة لـ sessionStorage.
+
+    Gated behind the subscriber's plan: the Insights dashboard is a
+    Growth/Scale feature (see config.PLANS[...]["insights_enabled"]) — Starter
+    accounts get a clear 403 pointing them at /billing/plans instead of a
+    silent failure.
     """
+    if not user.get("is_dev_bypass"):
+        sub = billing.get_subscription(db, user["uid"])
+        if not billing.is_subscription_active(sub):
+            raise HTTPException(402, "No active subscription. Choose a plan at /billing/plans to use Insights.")
+        plan = PLANS[sub["plan"]]
+        if not plan.get("insights_enabled"):
+            raise HTTPException(
+                403,
+                f"The Business Insights dashboard isn't included in your '{plan['name']}' plan. "
+                "Upgrade to Growth or Scale at /billing/plans to unlock it."
+            )
+
     doc = (
         db.collection("users").document(user["uid"])
           .collection("forecasts").document(forecast_id).get()
@@ -1182,9 +1200,13 @@ def list_plans(user: Optional[dict] = Depends(_optional_user)):
 
     return JSONResponse({
         "plans": [
-            {"id": plan_id, **plan}
+            {
+                "id": plan_id,
+                **plan,
+                "forecast_horizon_options": forecast_horizon_options(plan),
+            }
             for plan_id, plan in PLANS.items()
-            # test_plan is a $0.50 plan for exercising the Paymob checkout
+            # test_plan is a 25 EGP plan for exercising the Paymob checkout
             # flow without paying full price — hide it from real customers
             # by only ever showing it outside production. Remove this
             # whole entry from PLANS in config.py once testing is done.
@@ -1194,10 +1216,11 @@ def list_plans(user: Optional[dict] = Depends(_optional_user)):
         # feature concept, filled in with each plan's own numbers client-side.
         "feature_explanations": PLAN_FEATURE_EXPLANATIONS,
         "paymob_configured": settings.paymob_configured,
-        "paymob_countries": {
-            code: {"label": info["label"], "currency": info["currency"]}
-            for code, info in settings.paymob_countries_available.items()
-        },
+        "base_currency": settings.BASE_CURRENCY,
+        # Display-only currency list for the country/currency picker — every
+        # plan is actually charged in base_currency regardless of which of
+        # these the customer picks (see settings.display_price).
+        "currencies": settings.DISPLAY_CURRENCIES,
         "trial_duration_days": billing.TRIAL_DURATION_DAYS,
         "trial_available": trial_available,
     })
@@ -1234,7 +1257,46 @@ def billing_status(user=Depends(verify_user)):
             "models_used": count_models(user["uid"]),
             "models_limit": plan["max_models"],
         }
+        response["insights_enabled"] = plan.get("insights_enabled", False)
+        response["forecast_horizon_options"] = forecast_horizon_options(plan)
+    country = get_user_country(user["uid"])
+    response["country"] = country
+    response["currency"] = settings.DISPLAY_CURRENCIES.get(country or "", settings.DISPLAY_CURRENCIES["OTHER"])["currency"]
     return JSONResponse(response)
+
+
+@app.get("/currencies", summary="List countries and their display currency (for the sign-up country picker)")
+def get_currencies():
+    """Public — used on the sign-up form before the user has an account.
+    Purely for showing an approximate local-currency price; the customer
+    is always actually billed in settings.BASE_CURRENCY through the one
+    configured Paymob integration, regardless of the country they pick."""
+    return JSONResponse({
+        "base_currency": settings.BASE_CURRENCY,
+        "currencies": {code: info for code, info in settings.DISPLAY_CURRENCIES.items()},
+    })
+
+
+class CountryUpdate(BaseModel):
+    country: str  # ISO 3166-1 alpha-2 code, or "OTHER"
+
+
+@app.post("/profile/country", summary="Save the account's country (sets which currency prices are displayed in)")
+async def set_profile_country(body: CountryUpdate, user=Depends(verify_user)):
+    code = (body.country or "").upper().strip()
+    if code not in settings.DISPLAY_CURRENCIES:
+        code = "OTHER"
+    await asyncio.to_thread(
+        lambda: db.collection("users").document(user["uid"]).set({"country": code}, merge=True)
+    )
+    return JSONResponse({"country": code, "currency": settings.DISPLAY_CURRENCIES[code]["currency"]})
+
+
+def get_user_country(uid: str) -> Optional[str]:
+    doc = db.collection("users").document(uid).get()
+    if not doc.exists:
+        return None
+    return doc.to_dict().get("country")
 
 
 class SubscribeRequest(BaseModel):
@@ -1243,11 +1305,13 @@ class SubscribeRequest(BaseModel):
 
 class CheckoutRequest(BaseModel):
     plan_id: str
-    # ISO 3166-1 alpha-2 country code — which Paymob currency/integration to
-    # charge through. Must be one whose integration id is actually
-    # configured (see settings.paymob_countries_available) — the customer
-    # picks this on the Plan Details page's country dropdown.
-    country: str
+    # ISO 3166-1 alpha-2 country code — used only to (a) show the customer
+    # an approximate price in their own currency on the receipt, and (b)
+    # pass along to Paymob's fraud/3D-Secure billing_data. It does NOT pick
+    # a different currency or integration to charge through — this Paymob
+    # account has exactly one integration, always charged in
+    # settings.BASE_CURRENCY (see config.py).
+    country: str = "OTHER"
 
 
 @app.post(
@@ -1279,34 +1343,30 @@ async def start_trial(body: SubscribeRequest, user=Depends(verify_user)):
 
 @app.post(
     "/billing/subscribe",
-    summary="Start a Paymob checkout for a subscription plan (Egypt + Gulf/MENA)",
+    summary="Start a Paymob checkout for a subscription plan",
 )
 async def subscribe(body: CheckoutRequest, user=Depends(verify_user)):
     if body.plan_id not in PLANS:
         raise HTTPException(400, f"Unknown plan_id. Choose one of: {', '.join(PLANS)}")
 
-    available = settings.paymob_countries_available
-    country = body.country.upper()
-    if country not in available:
-        supported = ", ".join(available) or "(none configured yet)"
-        raise HTTPException(
-            400,
-            f"Payments from '{body.country}' aren't supported yet. "
-            f"Currently supported countries: {supported}."
-        )
-
     plan = PLANS[body.plan_id]
     email = user.get("email", "unknown@local.test")
-    country_info = available[country]
-    currency = country_info["currency"]
-    amount_local = plan["price_usd"] * country_info["usd_rate"]
+    country = (body.country or "OTHER").upper()
+    if country not in settings.DISPLAY_CURRENCIES:
+        country = "OTHER"
+
+    # Actual charge ALWAYS happens in settings.BASE_CURRENCY through the
+    # single configured integration — the country only changes what the
+    # customer sees as an approximate converted price on the receipt.
+    amount_base = plan["price_egp"]
+    display = settings.display_price(amount_base, country)
 
     try:
         result = await paymob.create_payment_intent(
-            amount_cents=int(round(amount_local * 100)),
+            amount_cents=int(round(amount_base * 100)),
             billing_email=email,
-            integration_id=country_info["integration_id"],
-            currency=currency,
+            integration_id=settings.PAYMOB_INTEGRATION_ID,
+            currency=settings.BASE_CURRENCY,
             country=country,
         )
     except PaymobNotConfigured as exc:
@@ -1326,13 +1386,19 @@ async def subscribe(body: CheckoutRequest, user=Depends(verify_user)):
             "created_at": firestore.SERVER_TIMESTAMP,
         })
     )
+    # Remember the chosen country on the account too, so future price
+    # displays (dashboard, plan-details) default to it automatically.
+    await asyncio.to_thread(
+        lambda: db.collection("users").document(user["uid"]).set({"country": country}, merge=True)
+    )
 
     return JSONResponse({
         "plan_id": body.plan_id,
         "country": country,
-        "currency": currency,
-        "amount_usd": plan["price_usd"],
-        "amount_local": round(amount_local, 2),
+        "currency": settings.BASE_CURRENCY,
+        "amount_charged": round(amount_base, 2),
+        "display_currency": display["currency"],
+        "display_amount": display["amount"],
         "order_id": result["order_id"],
         "checkout_url": result["iframe_url"],
     })

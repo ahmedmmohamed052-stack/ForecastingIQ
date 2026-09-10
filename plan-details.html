@@ -156,10 +156,28 @@ async function fetchWithTimeout(url, options = {}, ms = 10000) {
 
 // ── Auth guard — same pattern as dashboard.html: dev mode skips Firebase ───
 let _ready = false;
+let myCountry = null; // the account's saved country, if any (from /billing/status)
+
+function formatPlanPrice(priceEgp, plansResponse) {
+  const currencies = (plansResponse && plansResponse.currencies) || {};
+  const info = currencies[myCountry] || currencies['OTHER'] || { currency: 'EGP', rate_from_base: 1 };
+  const amount = Math.round(priceEgp * (info.rate_from_base ?? 1));
+  return `${amount.toLocaleString()} ${info.currency}`;
+}
+
+async function loadMyCountry() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/billing/status`, { headers }, 8000);
+    const d = await res.json();
+    if (res.ok) myCountry = d.country || null;
+  } catch (_) { /* not logged in yet / dev mode without a saved country — fine */ }
+}
+
 function onAuthReady() {
   if (_ready) return;
   _ready = true;
-  loadPlanDetails();
+  loadMyCountry().then(loadPlanDetails);
 }
 if (isDevMode()) {
   onAuthReady();
@@ -201,9 +219,10 @@ async function loadPlanDetails() {
       explain.trainings && { icon: "🏋️", t: explain.trainings.title, b: explain.trainings.body, limit: `${plan.max_trainings}/month` },
       explain.max_models && { icon: "🧠", t: explain.max_models.title, b: explain.max_models.body, limit: `${plan.max_models} saved model${plan.max_models === 1 ? '' : 's'}` },
       explain.forecast_points && { icon: "🔮", t: explain.forecast_points.title, b: explain.forecast_points.body, limit: `${plan.max_forecast_points_per_month.toLocaleString()}/month` },
-      explain.forecast_horizon && { icon: "📆", t: explain.forecast_horizon.title, b: explain.forecast_horizon.body, limit: `up to ${plan.max_forecast_months} months ahead` },
+      explain.forecast_horizon && { icon: "📆", t: explain.forecast_horizon.title, b: explain.forecast_horizon.body, limit: (plan.forecast_horizon_options || [plan.max_forecast_months]).join('/') + ' months' },
       explain.historical_data && { icon: "🗂️", t: explain.historical_data.title, b: explain.historical_data.body, limit: `up to ${plan.max_historical_months} months` },
       plan.product_level_forecasting && explain.product_level && { icon: "🏷️", t: explain.product_level.title, b: explain.product_level.body, limit: "included" },
+      explain.insights && { icon: "💼", t: explain.insights.title, b: explain.insights.body, limit: plan.insights_enabled ? "included" : "not included on this plan" },
       explain.dashboard && { icon: "📊", t: explain.dashboard.title, b: explain.dashboard.body, limit: "included" },
       explain.data_export && { icon: "⬇️", t: explain.data_export.title, b: explain.data_export.body, limit: "included" },
       plan.advanced_forecasting && explain.advanced_forecasting && { icon: "✨", t: explain.advanced_forecasting.title, b: explain.advanced_forecasting.body, limit: "included" },
@@ -227,7 +246,7 @@ async function loadPlanDetails() {
         ${plan.most_popular ? `<div class="most-popular-badge">Most Popular</div>` : ''}
         <div class="plan-eyebrow">Your Plan</div>
         <div class="plan-name">${plan.name}</div>
-        <div class="plan-price">$${plan.price_usd}<small>/month</small></div>
+        <div class="plan-price">${formatPlanPrice(plan.price_egp, d)}<small>/month</small></div>
         <div class="plan-tagline">${plan.tagline || ''}</div>
 
         <div class="section-label">What's included</div>
@@ -236,13 +255,12 @@ async function loadPlanDetails() {
         ${!isTrial ? `
         <div class="section-label" style="border-top:1px solid rgba(255,255,255,.08); padding-top:16px;">Where are you paying from?</div>
         <select id="country-select" style="width:100%; padding:12px; border-radius:10px; border:1px solid rgba(124,58,255,.3); background:#0b0f1e; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:12px; margin-bottom:6px;">
-          ${Object.keys(d.paymob_countries || {}).length === 0
-            ? `<option value="">No countries configured yet</option>`
-            : Object.entries(d.paymob_countries).map(([code, info]) =>
-                `<option value="${code}">${info.label} (${info.currency})</option>`
-              ).join('')
+          ${Object.entries(d.currencies || {}).map(([code, info]) =>
+              `<option value="${code}" ${code === myCountry ? 'selected' : ''}>${info.label} (${info.currency})</option>`
+            ).join('')
           }
         </select>
+        <div style="font-size:10px; opacity:.55; margin-bottom:6px;">Shown for your reference — you're always billed the same amount in ${d.base_currency}, our supported settlement currency.</div>
         <div id="gateway-warn"></div>
         ` : ''}
 
@@ -259,13 +277,13 @@ async function loadPlanDetails() {
       </div>
     `;
 
-    // No countries configured at all -> disable the CTA outright instead
-    // of letting the customer hit a guaranteed-to-fail request.
-    if (!isTrial && Object.keys(d.paymob_countries || {}).length === 0) {
+    // Paymob isn't configured at all yet -> disable the CTA outright
+    // instead of letting the customer hit a guaranteed-to-fail request.
+    if (!isTrial && !d.paymob_configured) {
       const cta = document.getElementById('cta-btn');
       cta.disabled = true;
       document.getElementById('gateway-warn').innerHTML =
-        `<div class="paymob-warn">⚠️ Payments aren't configured on the server yet for any country — add at least one PAYMOB_INTEGRATION_ID_&lt;COUNTRY&gt; to .env.</div>`;
+        `<div class="paymob-warn">⚠️ Payments aren't configured on the server yet — add PAYMOB_API_KEY, PAYMOB_INTEGRATION_ID and PAYMOB_IFRAME_ID to .env.</div>`;
     }
 
     document.getElementById("cta-btn").onclick = () => {
