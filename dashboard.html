@@ -359,8 +359,10 @@ tr:hover td{background:rgba(124,58,255,.04);}
         <div class="panel-title">Past Forecasts</div>
         <span class="panel-badge pb-green">GET /forecasts</span>
         <button class="btn-refresh" style="width:auto;padding:6px 12px;margin-left:8px;" onclick="fetchForecastHistory()">↻ Refresh</button>
+        <button class="btn-refresh" style="width:auto;padding:6px 12px;margin-left:6px;opacity:.75;" onclick="runFirestoreDiagnostic()" title="If forecasts never show up here, run this to see the exact reason why">🔧 Diagnose</button>
       </div>
       <div class="panel-body">
+        <div class="status-box sb-idle" id="st-diagnostic" style="display:none;"></div>
         <div class="hist-list" id="hist-list"><div class="empty-note">Loading your past forecasts...</div></div>
       </div>
     </div>
@@ -842,6 +844,7 @@ async function doForecast() {
     if (!res.ok) { const e=await res.json(); throw new Error(apiErrorMessage(e, res.statusText)); }
     lastCSV = await res.text();
     lastForecastId = res.headers.get('X-Forecast-Id') || '';
+    const saveError = res.headers.get('X-Forecast-Save-Error') || '';
     const rows = lastCSV.trim().split('\n').map(r=>r.split(','));
     const thead = document.querySelector('#fc-table thead');
     const tbody = document.querySelector('#fc-table tbody');
@@ -849,7 +852,14 @@ async function doForecast() {
     tbody.innerHTML = rows.slice(1).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
     document.getElementById('res-fc').classList.add('on');
     document.getElementById('btn-insights').disabled = !lastForecastId || !myInsightsEnabled;
-    setStatus('st-fc','success','✅',`Forecast complete — ${months}-month predictions ready.`);
+    if (saveError) {
+      // The forecast itself succeeded (CSV below is real) but saving it to
+      // your history/Insights failed — surfaced instead of hidden, so
+      // "View Insights" being disabled for THIS run actually makes sense.
+      setStatus('st-fc','error','⚠️',`Forecast ready, but it couldn't be saved to your history: <strong>${saveError}</strong>. The CSV download below is unaffected — only Past Forecasts/Insights for this run.`);
+    } else {
+      setStatus('st-fc','success','✅',`Forecast complete — ${months}-month predictions ready.`);
+    }
     fetchForecastHistory();
     fetchBillingStatus();
   } catch(e) { setStatus('st-fc','error','❌',e.message); }
@@ -875,6 +885,29 @@ function viewInsights(forecastId) {
   const id = forecastId || lastForecastId;
   if (!id) return;
   window.open(`/insights?forecast_id=${encodeURIComponent(id)}`, '_blank');
+}
+
+// ── One-click Firestore self-test — see /debug/firestore-check on the API ──
+async function runFirestoreDiagnostic() {
+  const box = document.getElementById('st-diagnostic');
+  box.style.display = 'flex';
+  box.className = 'status-box sb-idle';
+  box.innerHTML = `<span class="sb-icon"><span class="spin"></span></span><span>Testing Firestore read/write for your account...</span>`;
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetchWithTimeout(`${API}/debug/firestore-check`, { headers }, 15000);
+    const d = await res.json();
+    if (d.ok) {
+      box.className = 'status-box sb-success';
+      box.innerHTML = `<span class="sb-icon">✅</span><span>Firestore read/write is working fine for your account. If Past Forecasts is still empty, it means no forecast has been successfully saved yet — try running one above and watch for a save-error message.</span>`;
+    } else {
+      box.className = 'status-box sb-error';
+      box.innerHTML = `<span class="sb-icon">❌</span><span><strong>${d.error_type || 'Error'}:</strong> ${d.error || 'Unknown error'} — this is the exact reason saving models/forecasts may be failing.</span>`;
+    }
+  } catch (e) {
+    box.className = 'status-box sb-error';
+    box.innerHTML = `<span class="sb-icon">❌</span><span>${e.message}</span>`;
+  }
 }
 
 // ── Past Forecasts history ──────────────────────────────────────────────────

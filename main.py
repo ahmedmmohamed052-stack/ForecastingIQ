@@ -340,7 +340,7 @@ app.add_middleware(
     # short safelist — X-Forecast-Id etc. need to be explicitly exposed
     # here or dashboard.html's fetch() can't read them at all, even
     # though they're clearly visible in the Network tab.
-    expose_headers=["X-Forecast-Id", "X-Model-Name", "X-Train-RMSE", "X-Val-RMSE", "X-Baseline-RMSE", "X-Best-Lags", "X-Best-Roll", "X-Forecast-Months"],
+    expose_headers=["X-Forecast-Id", "X-Model-Name", "X-Train-RMSE", "X-Val-RMSE", "X-Baseline-RMSE", "X-Best-Lags", "X-Best-Roll", "X-Forecast-Months", "X-Forecast-Save-Error"],
 )
 
 # =============================================================================
@@ -985,8 +985,15 @@ async def forecast_endpoint(
 
     metrics = bundle["metrics"]
 
-    # ── 6.5 Save forecast to Firestore (non-blocking — never breaks the CSV download) ──
+    # ── 6.5 Save forecast to Firestore (never breaks the CSV download, but
+    #      failure is now VISIBLE instead of silently swallowed — a swallowed
+    #      failure here is exactly what makes "View Insights" look permanently
+    #      broken and Past Forecasts look permanently empty, with no clue why.
+    #      X-Forecast-Save-Error carries the real reason to the browser so it
+    #      can be seen immediately (dashboard.html surfaces it), and it's
+    #      logged at ERROR (not just warning) with a full traceback. ──────────
     saved_forecast_id = None
+    save_error = None
     try:
         saved_forecast_id = await asyncio.to_thread(
             save_forecast_to_firestore,
@@ -1000,7 +1007,8 @@ async def forecast_endpoint(
             model_id,
         )
     except Exception as fs_exc:
-        logger.warning(f"Firestore save failed (non-fatal): {fs_exc}", exc_info=True)
+        save_error = str(fs_exc)
+        logger.error(f"Firestore forecast-save FAILED for uid={user['uid']}: {fs_exc}", exc_info=True)
 
     # ── 6. Send email (non-blocking) ─────────────────────────────────────────
     user_email = user.get("email")
@@ -1030,10 +1038,15 @@ async def forecast_endpoint(
             "X-Best-Roll":     str(bundle["roll"]),
             "X-Forecast-Months": str(months),
             "X-Forecast-Id":    saved_forecast_id or "",
+            # Empty string when the save succeeded; the real exception
+            # message (truncated) when it didn't, so the UI can actually
+            # tell the customer their forecast wasn't saved to history
+            # instead of Insights just looking mysteriously disabled.
+            "X-Forecast-Save-Error": (save_error or "")[:200],
             # Browsers block JS (fetch) from reading response headers unless
             # the server explicitly allows it — without this, dashboard.html
             # couldn't read X-Forecast-Id to build the "View Insights" link.
-            "Access-Control-Expose-Headers": "X-Forecast-Id, X-Model-Name, X-Train-RMSE, X-Val-RMSE, X-Baseline-RMSE, X-Best-Lags, X-Best-Roll, X-Forecast-Months",
+            "Access-Control-Expose-Headers": "X-Forecast-Id, X-Model-Name, X-Train-RMSE, X-Val-RMSE, X-Baseline-RMSE, X-Best-Lags, X-Best-Roll, X-Forecast-Months, X-Forecast-Save-Error",
         },
     )
 
@@ -1280,6 +1293,49 @@ def billing_status(user=Depends(verify_user)):
     response["country"] = country
     response["currency"] = settings.DISPLAY_CURRENCIES.get(country or "", settings.DISPLAY_CURRENCIES["OTHER"])["currency"]
     return JSONResponse(response)
+
+
+@app.get("/debug/firestore-check", summary="Self-test: can this account actually read/write Firestore right now?")
+async def debug_firestore_check(user=Depends(verify_user)):
+    """
+    Writes a throwaway document to users/{uid}/_diagnostics/ping, reads it
+    straight back, then deletes it — end to end, using the exact same
+    Admin SDK client (`db`) as every other endpoint in this file. If
+    something about this account/project/service-account is broken in a
+    way that would silently break saving models or forecasts, this call
+    will show the real exception right here instead of somewhere far
+    upstream where it just looks like "Insights doesn't work."
+    Safe to call as often as you like — cleans up after itself.
+    """
+    ref = db.collection("users").document(user["uid"]).collection("_diagnostics").document("ping")
+    steps = {}
+    try:
+        test_value = {"checked_at": firestore.SERVER_TIMESTAMP, "note": "ForecastIQ Firestore self-test"}
+        await asyncio.to_thread(ref.set, test_value)
+        steps["write"] = "ok"
+
+        snap = await asyncio.to_thread(ref.get)
+        steps["read"] = "ok" if snap.exists else "wrote but read-back found nothing"
+
+        await asyncio.to_thread(ref.delete)
+        steps["delete"] = "ok"
+
+        return JSONResponse({
+            "ok": True,
+            "uid": user["uid"],
+            "steps": steps,
+            "message": "Firestore read/write/delete all succeeded for this account.",
+        })
+    except Exception as exc:
+        logger.error(f"debug_firestore_check FAILED for uid={user['uid']}: {exc}", exc_info=True)
+        return JSONResponse(status_code=500, content={
+            "ok": False,
+            "uid": user["uid"],
+            "steps": steps,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "message": "Firestore read/write failed for this account — see 'error' above for the exact reason.",
+        })
 
 
 @app.get("/currencies", summary="List countries and their display currency (for the sign-up country picker)")
