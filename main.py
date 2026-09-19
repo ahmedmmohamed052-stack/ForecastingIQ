@@ -981,6 +981,21 @@ async def forecast_endpoint(
             "Call GET /models to see your trained models, or POST /train to create one."
         )
 
+    # ── 2a. Reject models saved with a corrupted schema from before this
+    # bug was fixed (date_col/target_col/group_col detected as the same
+    # column — see schema.py's collision guard). Such a model's saved
+    # schema is permanently broken; it can't be "fixed" post-hoc, it has
+    # to be retrained from the original CSV with the corrected detector. ──
+    _legacy_sch = bundle.get("schema") or {}
+    _d, _t, _g = _legacy_sch.get("date_col"), _legacy_sch.get("target_col"), _legacy_sch.get("group_col")
+    if _d and (_d == _t or _d == _g) or (_t and _t == _g):
+        raise HTTPException(
+            409,
+            "This model was trained before a schema-detection bug fix and has a corrupted "
+            "schema (two of date/target/group columns collided). It can't be used for "
+            "forecasting — please delete it and retrain a new model from the same CSV."
+        )
+
     # ── 3. Validate against the schema saved at training time & prepare ────
     df = load_csv(contents)
 
