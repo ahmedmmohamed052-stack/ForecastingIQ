@@ -313,6 +313,20 @@ function fmtPct(n) {
   if (n === null || n === undefined || isNaN(n)) return "—";
   return (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
 }
+// Turns a raw uploaded column name (e.g. "number_of_product_purchases")
+// into a readable label (e.g. "Number Of Product Purchases") so labels
+// across the page always reflect what the USER is actually forecasting,
+// instead of a hardcoded word like "Sales".
+function prettyCol(name) {
+  if (!name) return "Value";
+  return String(name)
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 function growthPill(n) {
   if (n === null || n === undefined || isNaN(n)) return `<span class="pill flat">—</span>`;
   const cls = n > 1 ? "up" : (n < -1 ? "down" : "flat");
@@ -329,8 +343,8 @@ function content_inner(d, m) {
       <div>
         <div class="page-title">Forecast Insights</div>
         <div class="page-meta">
-          Run on <b>${createdLabel}</b> · Target: <b>${m.targetCol}</b>
-          ${m.hasGroups ? ` · Grouped by <b>${m.groupCol}</b> (${m.numSeries} series)` : ` · Single series`}
+          Run on <b>${createdLabel}</b> · Target: <b>${prettyCol(m.targetCol)}</b>
+          ${m.hasGroups ? ` · Grouped by <b>${prettyCol(m.groupCol)}</b> (${m.numSeries} series)` : ` · Single series`}
           · Model: <b>${d.model_name || '—'}</b>
         </div>
       </div>
@@ -341,12 +355,12 @@ function content_inner(d, m) {
 
     <div class="kpi-grid">
       <div class="kpi-card" style="--kpi-color:${'var(--a1)'}">
-        <div class="kpi-label">Total Past Sales</div>
+        <div class="kpi-label">Total Past ${prettyCol(m.targetCol)}</div>
         <div class="kpi-value">${fmtNum(m.totalHistorical)}</div>
         <div class="kpi-sub">across all recorded periods</div>
       </div>
       <div class="kpi-card" style="--kpi-color:${'var(--a2)'}">
-        <div class="kpi-label">Total Forecasted</div>
+        <div class="kpi-label">Total Forecasted ${prettyCol(m.targetCol)}</div>
         <div class="kpi-value">${fmtNum(m.totalForecasted)}</div>
         <div class="kpi-sub">next ${d.months} month${d.months === 1 ? '' : 's'}</div>
       </div>
@@ -363,7 +377,7 @@ function content_inner(d, m) {
       <div class="kpi-card" style="--kpi-color:${'var(--a3)'}">
         <div class="kpi-label">${m.hasGroups ? 'Items Forecasted' : 'Forecast Horizon'}</div>
         <div class="kpi-value">${m.hasGroups ? m.numSeries : d.months + ' mo'}</div>
-        <div class="kpi-sub">${m.hasGroups ? (m.groupCol + ' groups') : 'months ahead'}</div>
+        <div class="kpi-sub">${m.hasGroups ? (prettyCol(m.groupCol) + ' groups') : 'months ahead'}</div>
       </div>
       <div class="kpi-card" style="--kpi-color:${'var(--a5)'}">
         <div class="kpi-label">Top Performer</div>
@@ -374,14 +388,14 @@ function content_inner(d, m) {
 
     <div class="grid-2">
       <div class="panel">
-        <div class="panel-title">📈 Sales Trend — Past vs Forecast</div>
-        <div class="panel-desc">Solid line = actual sales · Dashed line = forecast${m.hasGroups ? ' (top item shown)' : ''}</div>
+        <div class="panel-title">📈 ${prettyCol(m.targetCol)} Trend — Past vs Forecast</div>
+        <div class="panel-desc">Solid line = actual ${prettyCol(m.targetCol)} · Dashed line = forecast${m.hasGroups ? ' (top item shown)' : ''}</div>
         <div class="chart-wrap tall"><canvas id="chart-trend"></canvas></div>
         <div class="legend-row" id="trend-legend"></div>
       </div>
       <div class="panel">
-        <div class="panel-title">${m.hasGroups ? '🥧 Forecast Share by Product' : '📊 Forecast by Period'}</div>
-        <div class="panel-desc">${m.hasGroups ? 'Contribution to total forecasted volume' : 'Predicted value per upcoming period'}</div>
+        <div class="panel-title">${m.hasGroups ? `🥧 Forecast Share by ${prettyCol(m.groupCol)}` : '📊 Forecast by Period'}</div>
+        <div class="panel-desc">${m.hasGroups ? 'Contribution to total forecasted volume' : `Predicted ${prettyCol(m.targetCol)} per upcoming period`}</div>
         <div class="chart-wrap tall"><canvas id="chart-share"></canvas></div>
       </div>
     </div>
@@ -455,7 +469,7 @@ function renderGroupTable(m) {
     </tr>
   `).join('');
   return `<table class="data-table">
-    <thead><tr><th>${m.groupCol}</th><th>Historical Total</th><th>Historical Avg/Period</th><th>Forecast Total</th><th>Forecast Avg/Period</th><th>Growth</th></tr></thead>
+    <thead><tr><th>${prettyCol(m.groupCol)}</th><th>Historical Total</th><th>Historical Avg/Period</th><th>Forecast Total</th><th>Forecast Avg/Period</th><th>Growth</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -464,7 +478,7 @@ function renderPeriodTable(d, m) {
     <tr><td>${r.forecast_period}</td><td>${fmtNum(r.predicted_value)}</td></tr>
   `).join('');
   return `<table class="data-table">
-    <thead><tr><th>Period</th><th>Predicted ${m.targetCol}</th></tr></thead>
+    <thead><tr><th>Period</th><th>Predicted ${prettyCol(m.targetCol)}</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -568,7 +582,7 @@ function drawShareChart(d, m) {
       type: 'bar',
       data: {
         labels: sorted.map(r => r.forecast_period),
-        datasets: [{ label: m.targetCol, data: sorted.map(r => r.predicted_value), backgroundColor: '#7c3aff', borderRadius: 6 }],
+        datasets: [{ label: prettyCol(m.targetCol), data: sorted.map(r => r.predicted_value), backgroundColor: '#7c3aff', borderRadius: 6 }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,

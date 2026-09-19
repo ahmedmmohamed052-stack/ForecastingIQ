@@ -295,6 +295,11 @@ tr:hover td{background:rgba(124,58,255,.04);}
             <div class="drop-text">Drop CSV here or <span>browse</span></div>
             <div class="drop-fname" id="fn-train"></div>
           </div>
+          <div class="months-label">Which column should the model learn to predict?</div>
+          <select id="train-target-select" class="model-name-input" style="margin-bottom:10px;" onchange="onTrainTargetColChange()" disabled>
+            <option value="">Upload a CSV first…</option>
+          </select>
+          <div class="drop-fname" id="train-target-hint" style="margin-top:-8px;margin-bottom:10px;"></div>
           <input type="text" class="model-name-input" id="in-model-name" placeholder="Model name (optional) — e.g. Store 12 monthly sales" maxlength="80"/>
           <div class="prog-wrap"><div class="prog-bar" id="pb-train"></div></div>
           <button class="btn-action btn-train" id="btn-train" onclick="doTrain()" disabled>Train Model</button>
@@ -330,6 +335,11 @@ tr:hover td{background:rgba(124,58,255,.04);}
             <div class="drop-text">Drop CSV here or <span>browse</span></div>
             <div class="drop-fname" id="fn-fc"></div>
           </div>
+          <div class="months-label">Which column do you want to forecast?</div>
+          <select id="fc-target-select" class="model-name-input" style="margin-bottom:14px;" onchange="onTargetColChange()" disabled>
+            <option value="">Upload a CSV first…</option>
+          </select>
+          <div class="drop-fname" id="fc-target-hint" style="margin-top:-8px;margin-bottom:10px;"></div>
           <div class="months-label">Forecast Horizon</div>
           <div class="months-selector" id="months-selector">
             <div class="month-opt">
@@ -339,7 +349,7 @@ tr:hover td{background:rgba(124,58,255,.04);}
           </div>
           <div class="prog-wrap"><div class="prog-bar" id="pb-fc"></div></div>
           <button class="btn-action btn-forecast" id="btn-fc" onclick="doForecast()" disabled>Run Forecast</button>
-          <div class="status-box sb-idle" id="st-fc"><span class="sb-icon">💡</span><span>Select a model above, upload a CSV, and pick a forecast horizon.</span></div>
+          <div class="status-box sb-idle" id="st-fc"><span class="sb-icon">💡</span><span>Select a model above, upload a CSV, choose which column to forecast, and pick a forecast horizon.</span></div>
           <div class="result-panel" id="res-fc">
             <div class="result-head"><span>Forecast Results</span><div class="rh-dot"></div></div>
             <div class="result-body">
@@ -639,14 +649,136 @@ async function renderPlans() {
  
 // ── File handling ──────────────────────────────────────────────────────────
 const files = { train: null, forecast: null };
- 
+let fcColumns = [];      // columns detected in the uploaded forecast CSV
+let fcTargetCol = '';    // column the user picked as the forecast target
+let trainColumns = [];   // columns detected in the uploaded training CSV
+let trainTargetCol = ''; // column the user picked to train the model on ("" = let the server auto-detect)
+
+// Reads just enough of the file to get its header row, without loading the
+// whole CSV into memory — good enough since we only need column names.
+function parseCsvHeaderLine(line) {
+  const cols = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else { inQuotes = false; } }
+      else cur += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { cols.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+  }
+  cols.push(cur.trim());
+  return cols.filter(c => c.length);
+}
+function readCsvColumns(file, cb) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = String(e.target.result || '');
+    const firstLine = text.split(/\r\n|\n|\r/)[0] || '';
+    cb(parseCsvHeaderLine(firstLine));
+  };
+  reader.onerror = () => cb([]);
+  reader.readAsText(file.slice(0, 65536));
+}
+
+// Populates the "Which column do you want to forecast?" dropdown from the
+// uploaded forecast CSV's own header row, and pre-selects the column the
+// currently selected model expects (if it's present in this file).
+function loadForecastColumns(file) {
+  fcTargetCol = '';
+  const select = document.getElementById('fc-target-select');
+  const hint = document.getElementById('fc-target-hint');
+  select.disabled = true;
+  select.innerHTML = `<option value="">Reading columns…</option>`;
+  hint.textContent = '';
+  readCsvColumns(file, cols => {
+    fcColumns = cols;
+    if (!cols.length) {
+      select.innerHTML = `<option value="">Couldn't read columns from this file</option>`;
+      updateForecastButtonState();
+      return;
+    }
+    const expected = modelsCache.find(m => m.id === selectedModelId)?.schema?.target_col || '';
+    select.innerHTML = `<option value="">— Select a column —</option>` +
+      cols.map(c => `<option value="${c}">${c}</option>`).join('');
+    select.disabled = false;
+    if (expected && cols.includes(expected)) {
+      select.value = expected;
+      fcTargetCol = expected;
+      hint.textContent = `Matches this model's trained target ✓`;
+      hint.style.color = 'var(--a4)';
+    } else if (expected) {
+      hint.textContent = `This model was trained on a column named "${expected}" — pick whichever column here holds that same kind of data, and it'll be matched up automatically.`;
+      hint.style.color = 'var(--muted)';
+    }
+    updateForecastButtonState();
+  });
+}
+
+function onTargetColChange() {
+  fcTargetCol = document.getElementById('fc-target-select').value;
+  const hint = document.getElementById('fc-target-hint');
+  const expected = modelsCache.find(m => m.id === selectedModelId)?.schema?.target_col || '';
+  if (expected && fcTargetCol && fcTargetCol !== expected) {
+    hint.textContent = `Will be treated as "${expected}" (the model's trained target) for this forecast.`;
+    hint.style.color = 'var(--muted)';
+  } else if (expected && fcTargetCol === expected) {
+    hint.textContent = `Matches this model's trained target ✓`;
+    hint.style.color = 'var(--a4)';
+  } else {
+    hint.textContent = '';
+  }
+  updateForecastButtonState();
+}
+
+function updateForecastButtonState() {
+  document.getElementById('btn-fc').disabled = !(selectedModelId && files.forecast && fcTargetCol);
+}
+
+// Populates the training panel's "which column should the model learn to
+// predict?" dropdown from the uploaded CSV's own header row. Leaving it on
+// "Auto-detect" (the default) preserves the old behavior — the server
+// figures out the best target column itself — but the user can now pick
+// one explicitly instead.
+function loadTrainColumns(file) {
+  trainTargetCol = '';
+  const select = document.getElementById('train-target-select');
+  const hint = document.getElementById('train-target-hint');
+  select.disabled = true;
+  select.innerHTML = `<option value="">Reading columns…</option>`;
+  hint.textContent = '';
+  readCsvColumns(file, cols => {
+    trainColumns = cols;
+    if (!cols.length) {
+      select.innerHTML = `<option value="">Couldn't read columns from this file</option>`;
+      return;
+    }
+    select.innerHTML = `<option value="">Auto-detect (recommended)</option>` +
+      cols.map(c => `<option value="${c}">${c}</option>`).join('');
+    select.disabled = false;
+    hint.textContent = 'Leave on Auto-detect to let the model pick the best numeric column, or choose one yourself.';
+    hint.style.color = 'var(--muted)';
+  });
+}
+function onTrainTargetColChange() {
+  trainTargetCol = document.getElementById('train-target-select').value;
+  const hint = document.getElementById('train-target-hint');
+  hint.textContent = trainTargetCol
+    ? `The model will be trained to predict "${trainTargetCol}".`
+    : 'Leave on Auto-detect to let the model pick the best numeric column, or choose one yourself.';
+  hint.style.color = trainTargetCol ? 'var(--a4)' : 'var(--muted)';
+}
+
 function onFile(type) {
   const el = document.getElementById(type === 'train' ? 'f-train' : 'f-fc');
   if (!el.files[0]) return;
   files[type] = el.files[0];
   document.getElementById(type === 'train' ? 'fn-train' : 'fn-fc').textContent = el.files[0].name;
-  if (type === 'train') document.getElementById('btn-train').disabled = false;
-  else document.getElementById('btn-fc').disabled = !selectedModelId;
+  if (type === 'train') { document.getElementById('btn-train').disabled = false; loadTrainColumns(files.train); }
+  else { loadForecastColumns(files.forecast); updateForecastButtonState(); }
 }
 function onDrag(e,id){ e.preventDefault(); document.getElementById(id).classList.add('drag-over'); }
 function offDrag(id){ document.getElementById(id).classList.remove('drag-over'); }
@@ -656,8 +788,8 @@ function onDrop(e,type){
   if (!f||!f.name.endsWith('.csv')) return;
   files[type]=f;
   document.getElementById(type==='train'?'fn-train':'fn-fc').textContent=f.name;
-  if (type === 'train') document.getElementById('btn-train').disabled = false;
-  else document.getElementById('btn-fc').disabled = !selectedModelId;
+  if (type === 'train') { document.getElementById('btn-train').disabled = false; loadTrainColumns(files.train); }
+  else { loadForecastColumns(files.forecast); updateForecastButtonState(); }
 }
  
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -695,7 +827,10 @@ async function doTrain() {
     const headers = await getAuthHeaders();
     const fd = new FormData(); fd.append('file', files.train);
     const name = document.getElementById('in-model-name').value.trim();
-    const qs = name ? `?model_name=${encodeURIComponent(name)}` : '';
+    const params = new URLSearchParams();
+    if (name) params.set('model_name', name);
+    if (trainTargetCol) params.set('target_column', trainTargetCol);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await fetch(`${API}/train${qs}`, { method:'POST', headers, body:fd });
     const d = await res.json();
     if (!res.ok) throw new Error(apiErrorMessage(d, res.statusText));
@@ -785,7 +920,24 @@ function applySelection() {
   renderModels();
   const m = modelsCache.find(x => x.id === selectedModelId);
   if (m) updateBar(m);
-  document.getElementById('btn-fc').disabled = !(selectedModelId && files.forecast);
+  // Re-check the target-column pick against the (possibly new) model.
+  if (files.forecast && fcColumns.length) {
+    const expected = m?.schema?.target_col || '';
+    const hint = document.getElementById('fc-target-hint');
+    const select = document.getElementById('fc-target-select');
+    if (expected && fcColumns.includes(expected) && !fcTargetCol) {
+      select.value = expected;
+      fcTargetCol = expected;
+    }
+    if (expected && fcTargetCol === expected) {
+      hint.textContent = `Matches this model's trained target ✓`;
+      hint.style.color = 'var(--a4)';
+    } else if (expected && fcTargetCol) {
+      hint.textContent = `Will be treated as "${expected}" (the model's trained target) for this forecast.`;
+      hint.style.color = 'var(--muted)';
+    }
+  }
+  updateForecastButtonState();
 }
 
 async function deleteModel(id) {
@@ -831,6 +983,10 @@ let lastForecastId = '';
 let lastForecastMonths = 3;
 async function doForecast() {
   if (!files.forecast || !selectedModelId) return;
+  if (!fcTargetCol) {
+    setStatus('st-fc','error','⚠️','You must choose a column to forecast before running.');
+    return;
+  }
   const btn = document.getElementById('btn-fc');
   btn.disabled=true; setProg('pb-fc',true);
   setStatus('st-fc','loading','<span class="spin"></span>','Running forecast...');
@@ -840,7 +996,8 @@ async function doForecast() {
     const months = document.querySelector('input[name="fc-months"]:checked').value;
     lastForecastMonths = parseInt(months);
     const fd = new FormData(); fd.append('file', files.forecast);
-    const res = await fetchWithTimeout(`${API}/forecast?months=${months}&model_id=${encodeURIComponent(selectedModelId)}`, { method:'POST', headers, body:fd }, 60000); // 1 min timeout
+    const qs = `months=${months}&model_id=${encodeURIComponent(selectedModelId)}&target_column=${encodeURIComponent(fcTargetCol)}`;
+    const res = await fetchWithTimeout(`${API}/forecast?${qs}`, { method:'POST', headers, body:fd }, 60000); // 1 min timeout
     if (!res.ok) { const e=await res.json(); throw new Error(apiErrorMessage(e, res.statusText)); }
     lastCSV = await res.text();
     lastForecastId = res.headers.get('X-Forecast-Id') || '';

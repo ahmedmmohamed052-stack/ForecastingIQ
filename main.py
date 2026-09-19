@@ -928,6 +928,17 @@ async def forecast_endpoint(
     file: UploadFile = File(..., description="CSV file with historical sales data"),
     months: int = Query(3, description="Forecast horizon in months", enum=FORECAST_HORIZON_OPTIONS),
     model_id: str = Query(..., description="Which of your saved trained models to forecast with — see GET /models"),
+    target_column: Optional[str] = Query(
+        None,
+        description=(
+            "Which column in THIS upload holds the values to forecast. Defaults to the "
+            "column name the model was trained on. If this upload's target column has a "
+            "different name than what the model expects, pass it here and it will be "
+            "renamed internally to line up with the model's schema before forecasting — "
+            "the column's DATA still has to represent the same kind of series the model "
+            "learned from (same units/shape), only the NAME can differ."
+        ),
+    ),
     user=Depends(verify_user),
 ):
     """
@@ -967,7 +978,30 @@ async def forecast_endpoint(
 
     # ── 3. Validate against the schema saved at training time & prepare ────
     df = load_csv(contents)
-    validate_upload_against_schema(df, bundle["schema"])
+
+    # ── 3a. Let the caller point at a differently-named target column ──────
+    # The model's lag/rolling features are computed from the schema's
+    # target_col by NAME, so a same-shaped column with a different name
+    # (e.g. this upload calls it "units_sold" but the model was trained on
+    # "quantity") has to be renamed to match before anything else runs.
+    sch = bundle["schema"]
+    if target_column:
+        if target_column not in df.columns:
+            raise HTTPException(
+                400,
+                f"Column '{target_column}' isn't in this CSV. Columns found: {list(df.columns)}",
+            )
+        if target_column != sch["target_col"]:
+            if sch["target_col"] in df.columns:
+                raise HTTPException(
+                    400,
+                    f"This CSV already has a column named '{sch['target_col']}' (the name the "
+                    f"model expects) in addition to '{target_column}' you picked — rename or "
+                    "remove one of them so it's unambiguous which is the forecast target.",
+                )
+            df = df.rename(columns={target_column: sch["target_col"]})
+
+    validate_upload_against_schema(df, sch)
     df = prepare_for_schema(df, bundle["schema"])
 
     # ── Data-rows quota: the forecast upload's rows count too ──────────────
