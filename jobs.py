@@ -117,7 +117,7 @@ class TrainingJobQueue:
             logger.info(f"Training job {job_id} completed successfully")
             if self.on_complete:
                 try:
-                    await asyncio.to_thread(self.on_complete, job["uid"], bundle)
+                    job["saved_model_id"] = await asyncio.to_thread(self.on_complete, job["uid"], bundle)
                 except Exception as save_exc:
                     job["status"] = JobStatus.FAILED
                     job["error"] = f"Training succeeded but saving the model failed: {save_exc}"
@@ -165,6 +165,10 @@ class TrainingJobQueue:
                 "best_lags":     job["result"]["lags"],
                 "best_roll":     job["result"]["roll"],
             }
+            # The id save_model() returned via on_complete — lets the
+            # frontend auto-select the model it JUST trained instead of
+            # leaving whatever model was previously selected in place.
+            public["model_id"] = job.get("saved_model_id")
         if job["status"] == JobStatus.FAILED:
             public["error"] = job["error"]
         return public

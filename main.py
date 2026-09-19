@@ -92,9 +92,14 @@ logger.info(f"Firebase initialized (environment={settings.ENVIRONMENT})")
 security = HTTPBearer(auto_error=False)
 
 
-def _save_trained_model(uid: str, bundle: dict):
-    """Hook called by the training job queue once a job finishes successfully."""
-    save_model(uid, bundle, name=bundle.pop("requested_model_name", None))
+def _save_trained_model(uid: str, bundle: dict) -> str:
+    """Hook called by the training job queue once a job finishes successfully.
+    Returns the new model_id so the job record (and /train/status) can hand
+    it back to the frontend — otherwise the dashboard has no way to know
+    which of the user's saved models is the one that was just trained, and
+    can end up leaving a stale, differently-targeted model selected for
+    forecasting even right after a fresh training run."""
+    return save_model(uid, bundle, name=bundle.pop("requested_model_name", None))
 
 
 training_queue = TrainingJobQueue(

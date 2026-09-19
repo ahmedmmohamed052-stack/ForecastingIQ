@@ -857,6 +857,11 @@ async function doTrain() {
     setStatus('st-train','success','✅',`Model saved for <strong>${currentUserLabel()}</strong> — pick it below to run a forecast.`);
     updateBar(m);
     document.getElementById('in-model-name').value = '';
+    // Auto-select the model that was JUST trained — otherwise, if a
+    // different model was already selected, the forecast panel silently
+    // keeps forecasting with the OLD model (and its old target column)
+    // even though the user just trained a new one.
+    if (result.model_id) selectedModelId = result.model_id;
     await fetchModels();      // refresh the list so the new model shows up
     await fetchBillingStatus(); // usage counters (models_used) just changed
   } catch(e) { setStatus('st-train','error','❌',e.message); }
