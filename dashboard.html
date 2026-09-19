@@ -175,6 +175,11 @@ tr:hover td{background:rgba(124,58,255,.04);}
 .model-del:hover{background:rgba(248,113,113,.18);}
 .model-name-input{width:100%;padding:9px 12px;border-radius:9px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;}
 .model-name-input::placeholder{color:var(--muted);}
+/* Native <select> dropdown popups ignore the dark background/text color set
+   above and fall back to the OS/browser default (often white bg + white
+   text in a dark page) unless the <option> elements are styled directly. */
+select.model-name-input{color-scheme:dark;}
+select.model-name-input option{background:#0f1420;color:#e5e7eb;}
 /* PAST FORECASTS LIST */
 .hist-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;}
 .hist-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:rgba(255,255,255,.02);}
