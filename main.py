@@ -680,7 +680,7 @@ def prepare_for_schema(df: pd.DataFrame, sch: dict) -> pd.DataFrame:
     date_col, group_col = sch["date_col"], sch["group_col"]
 
     df = df.copy()
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce", dayfirst=bool(sch.get("date_dayfirst")))
     if df[date_col].isna().any():
         raise HTTPException(400, f"Invalid/unparseable dates in column '{date_col}'")
 

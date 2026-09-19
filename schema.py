@@ -45,10 +45,56 @@ MAX_CATEGORY_UNIQUE_RATIO = 0.2
 MAX_CATEGORY_UNIQUE_ABS = 50
 
 
+def _looks_like_numeric_date_code(numeric: pd.Series) -> bool:
+    """True if a column of numbers looks like an actual date code — YYYYMM
+    (e.g. 202401) or YYYYMMDD (e.g. 20240115) — rather than an arbitrary
+    numeric measurement that just happens to be a valid integer/float."""
+    vals = numeric.dropna()
+    if vals.empty or not (vals % 1 == 0).all():
+        return False
+    ints = vals.astype("int64")
+    # YYYYMM
+    in_range = ints.between(190001, 999912)
+    if in_range.mean() >= 0.95:
+        months = ints % 100
+        years = ints // 100
+        if ((months.between(1, 12)) & (years.between(1900, 9999))).mean() >= 0.95:
+            return True
+    # YYYYMMDD
+    in_range = ints.between(19000101, 99991231)
+    if in_range.mean() >= 0.95:
+        days = ints % 100
+        months = (ints // 100) % 100
+        years = ints // 10000
+        if (days.between(1, 31) & months.between(1, 12) & years.between(1900, 9999)).mean() >= 0.95:
+            return True
+    return False
+
+
 def _date_parse_ratio(series: pd.Series) -> float:
+    ratio, _ = _date_parse_ratio_and_style(series)
+    return ratio
+
+
+def _date_parse_ratio_and_style(series: pd.Series) -> tuple[float, bool]:
+    """Returns (best_ratio, dayfirst) — many real-world CSVs (and most
+    non-US locales, Egypt included) write dates as DD-MM-YYYY, which
+    pandas' default (month-first) parsing either misreads silently (e.g.
+    '05-02-2010' read as May 2nd instead of Feb 5th) or fails outright for
+    any day > 12 (e.g. '19-02-2010'). Trying both interpretations and
+    keeping whichever parses more successfully means both detection AND
+    the actual data ends up using the correct reading, instead of just
+    picking a column and then parsing it wrong."""
     if len(series) == 0:
-        return 0.0
-    return pd.to_datetime(series, errors="coerce").notna().mean()
+        return 0.0, False
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().mean() >= 0.9 and not _looks_like_numeric_date_code(numeric):
+        return 0.0, False
+    ratio_default  = pd.to_datetime(series, errors="coerce").notna().mean()
+    ratio_dayfirst = pd.to_datetime(series, errors="coerce", dayfirst=True).notna().mean()
+    if ratio_dayfirst > ratio_default:
+        return ratio_dayfirst, True
+    return ratio_default, False
 
 
 def _numeric_parse_ratio(series: pd.Series) -> float:
@@ -57,18 +103,22 @@ def _numeric_parse_ratio(series: pd.Series) -> float:
     return pd.to_numeric(series, errors="coerce").notna().mean()
 
 
-def detect_date_column(df: pd.DataFrame, override: str = None) -> str:
+def detect_date_column(df: pd.DataFrame, override: str = None) -> tuple[str, bool]:
+    """Returns (date_col, dayfirst) — dayfirst says whether DD-MM-YYYY (not
+    pandas' default MM-DD-YYYY) parses this column correctly, so the exact
+    same interpretation can be reused later when actually converting it."""
     if override:
         if override not in df.columns:
             raise ValueError(f"date_column '{override}' not found in the CSV. Columns: {list(df.columns)}")
-        return override
+        _, dayfirst = _date_parse_ratio_and_style(df[override])
+        return override, dayfirst
 
     candidates = []
     for col in df.columns:
-        ratio = _date_parse_ratio(df[col])
+        ratio, dayfirst = _date_parse_ratio_and_style(df[col])
         if ratio >= 0.9:
             bonus = 0.05 if any(h in str(col).lower() for h in DATE_NAME_HINTS) else 0.0
-            candidates.append((ratio + bonus, col))
+            candidates.append((ratio + bonus, col, dayfirst))
 
     if not candidates:
         raise ValueError(
@@ -77,7 +127,7 @@ def detect_date_column(df: pd.DataFrame, override: str = None) -> str:
             "'Jan 2024', '2024-01-15')."
         )
     candidates.sort(key=lambda t: t[0], reverse=True)
-    return candidates[0][1]
+    return candidates[0][1], candidates[0][2]
 
 
 # A column with only this many (or fewer) distinct values reads as a
@@ -178,9 +228,28 @@ def detect_schema(
     target_column: str = None,
 ) -> dict:
     """Returns {date_col, group_col, target_col, numeric_features, categorical_features}."""
-    date_col = detect_date_column(df, override=date_column)
+    date_col, date_dayfirst = detect_date_column(df, override=date_column)
     group_col = detect_group_column(df, date_col, override=group_column)
     target_col = detect_target_column(df, date_col, group_col, override=target_column)
+
+    # Defense-in-depth: even though each detector is supposed to avoid the
+    # others' column, an explicit override (date_column/group_column/
+    # target_column) skips that check entirely — so two roles CAN end up
+    # pointing at the same column (e.g. auto-detection mistakenly picks a
+    # numeric column as the date, while the caller separately pins that
+    # same column as the target). Using one column as two roles silently
+    # corrupts it during preprocessing (each role's coercion overwrites the
+    # other's), so fail loudly here instead.
+    if target_col == date_col:
+        raise ValueError(
+            f"The target column and the date column can't be the same ('{target_col}'). "
+            "Pass date_column explicitly (or rename a column) to fix this."
+        )
+    if target_col == group_col:
+        raise ValueError(
+            f"The target column and the group column can't be the same ('{target_col}'). "
+            "Pass group_column explicitly (or rename a column) to fix this."
+        )
 
     reserved = {date_col, group_col, target_col} - {None}
     remaining = [c for c in df.columns if c not in reserved]
@@ -199,6 +268,7 @@ def detect_schema(
 
     return {
         "date_col": date_col,
+        "date_dayfirst": date_dayfirst,
         "group_col": group_col,
         "target_col": target_col,
         "numeric_features": numeric_features,
